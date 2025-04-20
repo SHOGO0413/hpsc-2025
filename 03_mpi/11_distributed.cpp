@@ -26,13 +26,14 @@ int main(int argc, char** argv) {
   MPI_Datatype MPI_BODY;
   MPI_Type_contiguous(5, MPI_DOUBLE, &MPI_BODY);
   MPI_Type_commit(&MPI_BODY);
+
+  MPI_Win win;
+  MPI_Win_create(jbody, N/size * sizeof(Body), sizeof(Body), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
   for(int irank=0; irank<size; irank++) {
-    MPI_Win win;
-    MPI_Win_create(jbody, N/size * sizeof(Body), sizeof(Body), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
+    MPI_Win_fence(0, win);
+    MPI_Put(ibody, N/size, MPI_BODY, recv_from, 0, N/size, MPI_BODY, win);
+    MPI_Win_fence(0, win);
     for(int i=0; i<N/size; i++) {
-      MPI_Win_fence(0, win);
-      MPI_Put(ibody, N/size, MPI_BODY, recv_from, 0, N/size, MPI_BODY, win); // データ送信
-      MPI_Win_fence(0, win);
       for(int j=0; j<N/size; j++) {
         double rx = ibody[i].x - jbody[j].x;
         double ry = ibody[i].y - jbody[j].y;
