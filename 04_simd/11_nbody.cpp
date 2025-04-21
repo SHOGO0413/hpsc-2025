@@ -37,8 +37,8 @@ int main() {
             __m256 inv_r3 = _mm256_mul_ps(inv_r, _mm256_mul_ps(inv_r, inv_r)); // 1/r^3 = (1/sqrt(r^2))^3
 
             // 力の計算（マスク適用）
-            __m256 fxi_term = _mm256_mul_ps(rx, _mm256_mul_ps(mj, inv_r3)); // fx成分
-            __m256 fyi_term = _mm256_mul_ps(ry, _mm256_mul_ps(mj, inv_r3)); // fy成分
+            __m256 fxi_term = _mm256_mul_ps(_mm256_sub_ps(_mm256_setzero_ps(), rx), _mm256_mul_ps(mj, inv_r3)); // fx成分
+            __m256 fyi_term = _mm256_mul_ps(_mm256_sub_ps(_mm256_setzero_ps(), ry), _mm256_mul_ps(mj, inv_r3)); // fy成分
             fxi = _mm256_add_ps(fxi, fxi_term); // fx累積
             fyi = _mm256_add_ps(fyi, fyi_term); // fy累積
         }
