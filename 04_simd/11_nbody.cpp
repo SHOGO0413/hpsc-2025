@@ -24,21 +24,23 @@ int main() {
             __m256 yj = _mm256_loadu_ps(&y[j]); // y[j]をベクトルでロード
             __m256 mj = _mm256_loadu_ps(&m[j]); // m[j]をベクトルでロード
 
+            // インデックスマスクを作成（i != j の計算のみを実施）
+            __m256i indices = _mm256_set_epi32(j+7, j+6, j+5, j+4, j+3, j+2, j+1, j); // jのインデックス
+            __m256i i_mask = _mm256_set1_epi32(i); // iをベクトル化
+            __mmask8 comparison_mask = _mm256_cmp_epi32_mask(indices, i_mask, _MM_CMPINT_NE); // i != j のマスク
+
+            // 力の計算（i == jを除外）
             __m256 rx = _mm256_sub_ps(xi, xj); // rx = xi - xj
             __m256 ry = _mm256_sub_ps(yi, yj); // ry = yi - yj
             __m256 r2 = _mm256_add_ps(_mm256_mul_ps(rx, rx), _mm256_mul_ps(ry, ry)); // r^2 = rx^2 + ry^2
 
-            // 距離がゼロの場合を除外するためのマスク
-            __m256 zero = _mm256_set1_ps(1e-15f);
-            __m256 r2_mask = _mm256_cmp_ps(r2, zero, _CMP_GT_OQ); // r^2 > 1e-15
-
-            // 距離の逆三乗を計算
-            __m256 inv_r = _mm256_blendv_ps(_mm256_setzero_ps(), _mm256_rsqrt_ps(r2), r2_mask); // 1/sqrt(r^2)
+            // 距離の逆三乗を計算（マスク適用）
+            __m256 inv_r = _mm256_rsqrt_ps(r2); // 1/sqrt(r^2)
             __m256 inv_r3 = _mm256_mul_ps(inv_r, _mm256_mul_ps(inv_r, inv_r)); // 1/r^3 = (1/sqrt(r^2))^3
 
-            // 力の計算（マスク適用）
-            __m256 fxi_term = _mm256_mul_ps(_mm256_sub_ps(_mm256_setzero_ps(), rx), _mm256_mul_ps(mj, inv_r3)); // fx成分
-            __m256 fyi_term = _mm256_mul_ps(_mm256_sub_ps(_mm256_setzero_ps(), ry), _mm256_mul_ps(mj, inv_r3)); // fy成分
+            // マスクを使用して力の計算
+            __m256 fxi_term = _mm256_mask_mul_ps(_mm256_setzero_ps(), comparison_mask, rx, _mm256_mul_ps(mj, inv_r3)); // fx成分
+            __m256 fyi_term = _mm256_mask_mul_ps(_mm256_setzero_ps(), comparison_mask, ry, _mm256_mul_ps(mj, inv_r3)); // fy成分
             fxi = _mm256_add_ps(fxi, fxi_term); // fx累積
             fyi = _mm256_add_ps(fyi, fyi_term); // fy累積
         }
