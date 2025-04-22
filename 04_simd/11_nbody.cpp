@@ -4,7 +4,7 @@
 #include <immintrin.h>
 
 int main() {
-    const int N = 8;
+    const int N = 16;
     float x[N], y[N], m[N], fx[N], fy[N];
 
     // 初期化
@@ -15,34 +15,39 @@ int main() {
     }
 
     // ベクトル化用のAVX-512レジスタ
-    __m512 vx = _mm512_loadu_ps(x);
-    __m512 vy = _mm512_loadu_ps(y);
-    __m512 vm = _mm512_loadu_ps(m);
-    __m512 vfx = _mm512_setzero_ps();
-    __m512 vfy = _mm512_setzero_ps();
+    __m512 xjvec = _mm512_load_ps(x);
+    __m512 yjvec = _mm512_load_ps(y);
+    __m512 mvec = _mm512_load_ps(m);
+    __m512 fxvec = _mm512_setzero_ps();
+    __m512 fyvec = _mm512_setzero_ps();
 
-    // SIMD演算（ペアワイズ計算）
-    for (int j = 0; j < N; j++) {
-        __m512 rx = _mm512_sub_ps(vx, _mm512_set1_ps(x[j]));
-        __m512 ry = _mm512_sub_ps(vy, _mm512_set1_ps(y[j]));
-        __m512 r2 = _mm512_fmadd_ps(rx, rx, _mm512_mul_ps(ry, ry));
-        __m512 r_inv = _mm512_max_ps(_mm512_rsqrt14_ps(r2), _mm512_set1_ps(1e-5));
-        __m512 r3_inv = _mm512_mul_ps(r_inv, _mm512_mul_ps(r_inv, r_inv));
-        __m512 vMj = _mm512_set1_ps(m[j]);
-
-        // 力の計算
-        vfx = _mm512_fnmadd_ps(rx, _mm512_mul_ps(vMj, r3_inv), vfx);
-        vfy = _mm512_fnmadd_ps(ry, _mm512_mul_ps(vMj, r3_inv), vfy);
-    }
-
-    // 結果を保存
-    _mm512_storeu_ps(fx, vfx);
-    _mm512_storeu_ps(fy, vfy);
-
-    // 出力
     for (int i = 0; i < N; i++) {
-        printf("%d %g %g\n", i, fx[i], fy[i]);
-    }
+        
+        __m512 xivec = _mm512_set1_ps(x[i]); // xiをベクトル化
+        __m512 yivec = _mm512_set1_ps(y[i]); // yiをベクトル化
+        
+        __m512 rx = _mm512_sub_ps(xivec, xjvec); // rx = xi - xj
+        __m512 ry = _mm512_sub_ps(yivec, yjvec); // ry = yi - yj
+        __m512 r_inv = _mm512_rsqrt14_ps(_mm512_fmadd_ps(rx, rx, _mm512_mul_ps(ry, ry)));
+        __m512 r3_inv = _mm512_mul_ps(r_inv, _mm512_mul_ps(r_inv, r_inv));
 
-    return 0;
+        __m512i vi = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+        __m512i vj = _mm512_set1_epi32(i);
+        __mmask16 mask = _mm512_cmpneq_epi32_mask(vi, vj);  // i ≠ j のみ有効
+
+
+        __m512 fxi_term = _mm512_mask_mul_ps(_mm512_setzero_ps(), mask, rx, _mm512_mul_ps(mvec, r3_inv)); // fx成分
+        __m512 fyi_term = _mm512_mask_mul_ps(_mm512_setzero_ps(), mask, ry, _mm512_mul_ps(mvec, r3_inv)); // fy成分
+
+        fxvec = _mm512_sub_ps(fxvec, fxi_term); // fx累積
+        fyvec = _mm512_sub_ps(fyvec, fyi_term); // fy累積
+
+        fx[i] = _mm512_reduce_add_ps(fxvec);
+        fy[i] = _mm512_reduce_add_ps(fyvec);
+
+        printf("%d %g %g\n", i, fx[i], fy[i]);
+
+     }
+ 
+     return 0;
 }
