@@ -24,9 +24,6 @@ int main() {
         __m512 xivec = _mm512_set1_ps(x[i]); // xiをベクトル化
         __m512 yivec = _mm512_set1_ps(y[i]); // yiをベクトル化
 
-        __m512 fxvec = _mm512_setzero_ps();
-        __m512 fyvec = _mm512_setzero_ps();
-        
         __m512 rx = _mm512_sub_ps(xivec, xjvec); // rx = xi - xj
         __m512 ry = _mm512_sub_ps(yivec, yjvec); // ry = yi - yj
         __m512 r2 = _mm512_fmadd_ps(rx, rx, _mm512_mul_ps(ry, ry)); 
@@ -39,14 +36,11 @@ int main() {
         __mmask16 mask = _mm512_cmpneq_epi32_mask(vi, vj);  // i ≠ j のみ有効
 
 
-        __m512 fxi_term = _mm512_mask_mul_ps(_mm512_setzero_ps(), mask, rx, _mm512_mul_ps(mvec, r3_inv)); // fx成分
-        __m512 fyi_term = _mm512_mask_mul_ps(_mm512_setzero_ps(), mask, ry, _mm512_mul_ps(mvec, r3_inv)); // fy成分
+        __m512 fxvec = _mm512_mask_mul_ps(_mm512_setzero_ps(), mask, rx, _mm512_mul_ps(mvec, r3_inv)); // fx成分
+        __m512 fyvec = _mm512_mask_mul_ps(_mm512_setzero_ps(), mask, ry, _mm512_mul_ps(mvec, r3_inv)); // fy成分
 
-        fxvec = _mm512_sub_ps(fxvec, fxi_term); // fx累積
-        fyvec = _mm512_sub_ps(fyvec, fyi_term); // fy累積
-
-        fx[i] = _mm512_reduce_add_ps(fxi_term);
-        fy[i] = _mm512_reduce_add_ps(fyi_term);
+        fx[i] = -_mm512_reduce_add_ps(fxvec);
+        fy[i] = -_mm512_reduce_add_ps(fyvec);
 
         printf("%d %g %g\n", i, fx[i], fy[i]);
 
