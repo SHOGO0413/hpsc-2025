@@ -4,7 +4,7 @@
 #include <immintrin.h>
 
 int main() {
-    const int N = 16;
+    const int N = 8;
     float x[N], y[N], m[N], fx[N], fy[N];
 
     // 初期化
