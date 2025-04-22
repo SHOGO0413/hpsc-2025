@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
-#include <immintrin.h>
+#include <x86intrin.h>
 
 int main() {
     const int N = 8;
