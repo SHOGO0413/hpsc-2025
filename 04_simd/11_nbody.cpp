@@ -25,7 +25,7 @@ int main() {
     for (int j = 0; j < N; j++) {
         __m512 rx = _mm512_sub_ps(vx, _mm512_set1_ps(x[j]));
         __m512 ry = _mm512_sub_ps(vy, _mm512_set1_ps(y[j]));
-        __m512 r2 = _mm512_fmadd_ps(rx, rx, _mm512_mul_ps(ry, ry));
+        __m512 r2 = _mm512_fmadd_ps( _mm512_mul_ps(rx, rx), _mm512_mul_ps(ry, ry));
         __m512 r_inv = _mm512_rsqrt14_ps(r2);
         __m512 r3_inv = _mm512_mul_ps(r_inv, _mm512_mul_ps(r_inv, r_inv));
         __m512 vMj = _mm512_set1_ps(m[j]);
