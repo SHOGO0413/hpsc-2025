@@ -7,14 +7,13 @@ int main() {
     const int N = 8;
     float x[N], y[N], m[N], fx[N], fy[N];
 
-    // 初期化
     for (int i = 0; i < N; i++) {
         x[i] = drand48();
         y[i] = drand48();
         m[i] = drand48();
     }
 
-    //元々jループないで使う予定だった要素をベクトル化
+    //元々jループ内で使う予定だった要素をベクトル化
     __m512 xjvec = _mm512_load_ps(x);
     __m512 yjvec = _mm512_load_ps(y);
     __m512 mvec = _mm512_load_ps(m);
