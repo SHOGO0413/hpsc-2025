@@ -45,8 +45,8 @@ int main() {
         fxvec = _mm512_sub_ps(fxvec, fxi_term); // fx累積
         fyvec = _mm512_sub_ps(fyvec, fyi_term); // fy累積
 
-        fx[i] = _mm512_reduce_add_ps(fxvec);
-        fy[i] = _mm512_reduce_add_ps(fyvec);
+        fx[i] = _mm512_reduce_add_ps(fxi_term);
+        fy[i] = _mm512_reduce_add_ps(fyi_term);
 
         printf("%d %g %g\n", i, fx[i], fy[i]);
 
