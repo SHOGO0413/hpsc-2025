@@ -3,6 +3,7 @@
 #include <vector>
 #include <cuda_runtime.h>
 
+//各要素の出現回数を計算(keyの要素の出現回数をbucket配列に格納)
 __global__ void count_key(int* key, int* bucket, int n) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
@@ -10,19 +11,20 @@ __global__ void count_key(int* key, int* bucket, int n) {
     }
 }
 
-void prefix_sum_cpu(int* bucket, int* prefix, int range) {
-    prefix[0] = 0;
-    for (int i = 1; i < range; i++) {
-        prefix[i] = prefix[i - 1] + bucket[i - 1];
-    }
-}
-
-__global__ void sort_key(int* sorted_key, int* prefix, int* bucket, int range) {
+// 各バケットの値を並べ替えてsorted_keyに格納
+__global__ void sort_key(int* sorted_key, int* bucket, int range, int n) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < range && bucket[idx] > 0) {
-        int start = prefix[idx];
+    if (idx < range) {
+        int start = 0;
+        // 各バケットの開始位置を計算
+        for (int i = 0; i < idx; i++) {
+            start += bucket[i]; 
+        }
+        // このバケットに含まれる値をsorted_keyに配置
         for (int i = 0; i < bucket[idx]; i++) {
-            sorted_key[start + i] = idx;
+            if (start + i < n) {
+                sorted_key[start + i] = idx;
+            }
         }
     }
 }
@@ -30,8 +32,6 @@ __global__ void sort_key(int* sorted_key, int* prefix, int* bucket, int range) {
 int main() {
     int n = 50;
     int range = 5;
-
-    // 初期データの準備
     std::vector<int> key(n);
     for (int i = 0; i < n; i++) {
         key[i] = rand() % range;
@@ -39,7 +39,6 @@ int main() {
     }
     printf("\n");
 
-    // GPUメモリ確保
     int *d_key, *d_bucket, *d_sorted;
     cudaMalloc(&d_key, n * sizeof(int));
     cudaMalloc(&d_bucket, range * sizeof(int));
@@ -48,28 +47,14 @@ int main() {
 
     cudaMemcpy(d_key, key.data(), n * sizeof(int), cudaMemcpyHostToDevice);
 
-    // カウントカーネル呼び出し（名前変更）
-    int threads = 256;
+    // カウントカーネル呼び出し
+    int threads = 1024;
     int blocks = (n + threads - 1) / threads;
     count_key<<<blocks, threads>>>(d_key, d_bucket, n);
     cudaDeviceSynchronize();
 
-    // カウント結果をCPUにコピー
-    std::vector<int> bucket(range);
-    cudaMemcpy(bucket.data(), d_bucket, range * sizeof(int), cudaMemcpyDeviceToHost);
-
-    // prefix sum（CPUで処理）
-    std::vector<int> prefix(range);
-    prefix_sum_cpu(bucket.data(), prefix.data(), range);
-
-    // prefixとbucketをGPUに送る
-    int *d_prefix;
-    cudaMalloc(&d_prefix, range * sizeof(int));
-    cudaMemcpy(d_prefix, prefix.data(), range * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_bucket, bucket.data(), range * sizeof(int), cudaMemcpyHostToDevice);
-
-    // 再構築カーネル呼び出し（名前変更）
-    sort_key<<<1, range>>>(d_sorted, d_prefix, d_bucket, range);
+    // バケットソートカーネル呼び出し
+    sort_key<<<1, range>>>(d_sorted, d_bucket, range, n);
     cudaDeviceSynchronize();
 
     // 結果をCPUにコピー
@@ -81,11 +66,8 @@ int main() {
     }
     printf("\n");
 
-    // メモリ解放
     cudaFree(d_key);
     cudaFree(d_bucket);
     cudaFree(d_sorted);
-    cudaFree(d_prefix);
-
     return 0;
 }
