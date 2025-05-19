@@ -13,12 +13,15 @@ int main (int argc, char** argv) {
   MPI_Comm_size(MPI_COMM_WORLD, &mpisize);
   MPI_Comm_rank(MPI_COMM_WORLD, &mpirank);
   assert(mpisize == dim[0]*dim[1]);
+
   hsize_t N[2] = {NX, NY};
-  hsize_t Nlocal[2] = {NX / dim[0], NY / dim[1]};
-  hsize_t offset[2] = {mpirank / dim[1], mpirank % dim[1]};
-  hsize_t count[2]  = {Nlocal[0], Nlocal[1]};
-  hsize_t stride[2] = {dim[0], dim[1]};
-  hsize_t block[2]  = {1, 1};
+  hsize_t block_size[2] = {NX / (dim[0]*dim[0]), NY / (dim[1]*dim[1])};
+  hsize_t Nlocal[2] = {block_size[0], block_size[1]};
+  hsize_t offset[2] = {(mpirank / dim[1]) * block_size[0], (mpirank % dim[1]) * block_size[1]};
+  hsize_t stride[2] = {dim[0] * block_size[0], dim[1] * block_size[1]};
+  hsize_t count[2] = {1, 1};
+  hsize_t block[2] = {block_size[0], block_size[1]};
+
   vector<int> buffer(Nlocal[0]*Nlocal[1],mpirank);
   hid_t plist = H5Pcreate(H5P_FILE_ACCESS);
   H5Pset_fapl_mpio(plist, MPI_COMM_WORLD, MPI_INFO_NULL);
