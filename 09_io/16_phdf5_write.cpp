@@ -20,12 +20,13 @@ int main (int argc, char** argv) {
   for(int i=0; i<2; i++) offset[i] *= block[i];
   hsize_t count[2] = {2,2};
   hsize_t stride[2] = {2,2};
-  vector<int> buffer(Nlocal[0]*Nlocal[1],mpirank);
+　hsize_t localsize[2] = {Nlocal[0]*1.5,Nlocal[1]*1.5}
+  vector<int> buffer(localsize[0]*localsize[1],mpirank);
   hid_t plist = H5Pcreate(H5P_FILE_ACCESS);
   H5Pset_fapl_mpio(plist, MPI_COMM_WORLD, MPI_INFO_NULL);
   hid_t file = H5Fcreate("data.h5", H5F_ACC_TRUNC, H5P_DEFAULT, plist);
   hid_t globalspace = H5Screate_simple(2, N, NULL);
-  hid_t localspace = H5Screate_simple(2, Nlocal, NULL);
+  hid_t localspace = H5Screate_simple(2, localsize, NULL);
   hid_t dataset = H5Dcreate(file, "dataset", H5T_NATIVE_INT, globalspace,
 			    H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   H5Sselect_hyperslab(globalspace, H5S_SELECT_SET, offset, stride, count, block);
