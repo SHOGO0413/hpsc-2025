@@ -18,8 +18,8 @@ int main (int argc, char** argv) {
   hsize_t offset[2] = {mpirank / dim[0], mpirank % dim[0]};
   for(int i=0; i<2; i++) offset[i] *= Nlocal[i];
   hsize_t count[2] = {2,2};
-  hsize_t stride[2] = {2,2]};
-  hsize_t block[2] = {Nlocal[0]*2,Nlocal[1]*2}
+  hsize_t stride[2] = {2,2};
+  hsize_t block[2] = {Nlocal[0]*2,Nlocal[1]*2};
   vector<int> buffer(Nlocal[0]*Nlocal[1],block);
   hid_t plist = H5Pcreate(H5P_FILE_ACCESS);
   H5Pset_fapl_mpio(plist, MPI_COMM_WORLD, MPI_INFO_NULL);
