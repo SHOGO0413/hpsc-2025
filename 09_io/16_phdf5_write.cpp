@@ -25,7 +25,7 @@ int main (int argc, char** argv) {
   H5Pset_fapl_mpio(plist, MPI_COMM_WORLD, MPI_INFO_NULL);
   hid_t file = H5Fcreate("data.h5", H5F_ACC_TRUNC, H5P_DEFAULT, plist);
   hid_t globalspace = H5Screate_simple(2, N, NULL);
-  hid_t localspace = H5Screate_simple(2, localsize, NULL);
+  hid_t localspace = H5Screate_simple(2, Nlocal, NULL);
   hid_t dataset = H5Dcreate(file, "dataset", H5T_NATIVE_INT, globalspace,
 			    H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   H5Sselect_hyperslab(globalspace, H5S_SELECT_SET, offset, stride, count, Nlocal);
