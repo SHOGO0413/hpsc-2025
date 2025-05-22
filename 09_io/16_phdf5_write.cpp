@@ -20,7 +20,8 @@ int main (int argc, char** argv) {
   hsize_t count[2] = {2,2};
   hsize_t stride[2] = {2,2};
   vector<int> buffer(Nlocal[0]*Nlocal[1],mpirank);
-  Nlocal = {(NX/dim[0]), (NY/dim[1])};
+  Nlocal[0] = (NX/dim[0]);
+  Nlocal[1] = (NY/dim[1]);
   hid_t plist = H5Pcreate(H5P_FILE_ACCESS);
   H5Pset_fapl_mpio(plist, MPI_COMM_WORLD, MPI_INFO_NULL);
   hid_t file = H5Fcreate("data.h5", H5F_ACC_TRUNC, H5P_DEFAULT, plist);
