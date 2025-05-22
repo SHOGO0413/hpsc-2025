@@ -7,7 +7,7 @@ using namespace std;
 
 int main (int argc, char** argv) {
   const int NX = 10000, NY = 10000;
-  hsize_t dim[2] = {4, 4};
+  hsize_t dim[2] = {2, 2};
   int mpisize, mpirank;
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &mpisize);
@@ -15,7 +15,7 @@ int main (int argc, char** argv) {
   assert(mpisize == dim[0]*dim[1]);
   hsize_t N[2] = {NX, NY};
   hsize_t Nlocal[2] = {(NX/dim[0])/2, (NY/dim[1])/2};
-  hsize_t offset[2] = {(mpirank / dim[0])/2, (mpirank % dim[0])/2};
+  hsize_t offset[2] = {(mpirank / dim[0]), (mpirank % dim[0])};
   for(int i=0; i<2; i++) offset[i] *= Nlocal[i];
   hsize_t count[2] = {2,2};
   hsize_t stride[2] = {2,2};
