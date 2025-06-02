@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <fstream>
 #include <vector>
+#include <cmath>
+
 
 using namespace std;
 typedef vector<vector<float>> matrix;
