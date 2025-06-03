@@ -31,13 +31,9 @@ int main(int argc, char* argv[]) {
 
     int local_nx = nx / size;
     int remainder_x = nx % size;
-    // int start_x_global; // 未使用のためコメントアウトまたは削除
-
+    
     if (rank < remainder_x) {
         local_nx++;
-        // start_x_global = rank * local_nx; // 未使用のためコメントアウトまたは削除
-    } else {
-        // start_x_global = rank * local_nx + remainder_x; // 未使用のためコメントアウトまたは削除
     }
 
     int local_nx_with_ghost = local_nx;
@@ -90,15 +86,16 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // Pのゴーストセル更新
+            MPI_Status status; // MPI_Status変数を宣言
+
             for (int j = 0; j < ny; j++) {
                 if (rank > 0) {
-                    MPI_SendRecv(&pn[j][1], 1, MPI_FLOAT, rank - 1, 0,
-                                 &pn[j][0], 1, MPI_FLOAT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                    MPI_Sendrecv(&pn[j][1], 1, MPI_FLOAT, rank - 1, 0,
+                                 &pn[j][0], 1, MPI_FLOAT, rank - 1, 0, MPI_COMM_WORLD, &status);
                 }
                 if (rank < size - 1) {
-                    MPI_SendRecv(&pn[j][local_nx_with_ghost - 2], 1, MPI_FLOAT, rank + 1, 0,
-                                 &pn[j][local_nx_with_ghost - 1], 1, MPI_FLOAT, rank + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                    MPI_Sendrecv(&pn[j][local_nx_with_ghost - 2], 1, MPI_FLOAT, rank + 1, 0,
+                                 &pn[j][local_nx_with_ghost - 1], 1, MPI_FLOAT, rank + 1, 0, MPI_COMM_WORLD, &status);
                 }
             }
 
@@ -134,19 +131,20 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // U, Vのゴーストセル更新
+        MPI_Status status; // MPI_Status変数を宣言
+
         for (int j = 0; j < ny; j++) {
             if (rank > 0) {
-                MPI_SendRecv(&un[j][1], 1, MPI_FLOAT, rank - 1, 0,
-                             &un[j][0], 1, MPI_FLOAT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                MPI_SendRecv(&vn[j][1], 1, MPI_FLOAT, rank - 1, 0,
-                             &vn[j][0], 1, MPI_FLOAT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Sendrecv(&un[j][1], 1, MPI_FLOAT, rank - 1, 0,
+                             &un[j][0], 1, MPI_FLOAT, rank - 1, 0, MPI_COMM_WORLD, &status);
+                MPI_Sendrecv(&vn[j][1], 1, MPI_FLOAT, rank - 1, 0,
+                             &vn[j][0], 1, MPI_FLOAT, rank - 1, 0, MPI_COMM_WORLD, &status);
             }
             if (rank < size - 1) {
-                MPI_SendRecv(&un[j][local_nx_with_ghost - 2], 1, MPI_FLOAT, rank + 1, 0,
-                             &un[j][local_nx_with_ghost - 1], 1, MPI_FLOAT, rank + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                MPI_SendRecv(&vn[j][local_nx_with_ghost - 2], 1, MPI_FLOAT, rank + 1, 0,
-                             &vn[j][local_nx_with_ghost - 1], 1, MPI_FLOAT, rank + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Sendrecv(&un[j][local_nx_with_ghost - 2], 1, MPI_FLOAT, rank + 1, 0,
+                             &un[j][local_nx_with_ghost - 1], 1, MPI_FLOAT, rank + 1, 0, MPI_COMM_WORLD, &status);
+                MPI_Sendrecv(&vn[j][local_nx_with_ghost - 2], 1, MPI_FLOAT, rank + 1, 0,
+                             &vn[j][local_nx_with_ghost - 1], 1, MPI_FLOAT, rank + 1, 0, MPI_COMM_WORLD, &status);
             }
         }
 
