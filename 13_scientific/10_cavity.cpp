@@ -38,6 +38,9 @@ int main() {
       b[j][i] = 0;
     }
   }
+  auto start = high_resolution_clock::now();
+
+	
   ofstream ufile("u.dat");
   ofstream vfile("v.dat");
   ofstream pfile("p.dat");
