@@ -171,7 +171,7 @@ int main(int argc, char *argv[])
 
         if (n % 10 == 0)
         {
-            if (rank == 0)
+            if (rank == 1)
             {
                 for (int j = 0; j < ny; j++)
                 {
