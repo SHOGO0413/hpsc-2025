@@ -324,24 +324,24 @@ int main(int argc, char *argv[])
                     {
                         ufile << global_u[j * nx + i] << " ";
                     }
-                    ufile << "\n";
                 }
+                ufile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                     {
                         vfile << global_v[j * nx + i] << " ";
                     }
-                    vfile << "\n";
                 }
+                vfile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                     {
                         pfile << global_p[j * nx + i] << " ";
                     }
-                    pfile << "\n";
                 }
+                pfile << "\n";
             }
         }
     } // end of nt loop
