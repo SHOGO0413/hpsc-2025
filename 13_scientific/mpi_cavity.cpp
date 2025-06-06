@@ -265,30 +265,84 @@ int main(int argc, char *argv[])
             v[ny - 1][i] = 0;
         }
 
-        if (n % 10 == 0)
+          if (n % 10 == 0)
         {
+            // --- データの集約のための準備 ---
+            // 各プロセスの担当範囲のサイズとオフセットを計算
+            vector<int> recvcounts(size); // 各プロセスから受け取る要素数
+            vector<int> displs(size);     // 各プロセスから受け取るデータの開始位置（オフセット）
+
+            for (int r = 0; r < size; ++r) {
+                int r_begin_idx, r_end_idx;
+                if (r < remainder) {
+                    r_begin_idx = r * (local_nx_base + 1);
+                    r_end_idx = r_begin_idx + (local_nx_base + 1);
+                } else {
+                    r_begin_idx = r * local_nx_base + remainder;
+                    r_end_idx = r_begin_idx + local_nx_base;
+                }
+                recvcounts[r] = (r_end_idx - r_begin_idx) * ny; // 各ランクのx方向の要素数 * y方向の要素数
+                displs[r] = r_begin_idx * ny; // 全体配列での開始位置 (y方向の要素数ごとにずれる)
+            }
+
+            // 全データを格納するためのグローバル配列 (ランク0のみが持つ)
+            // この場合、matrix (vector<vector<float>>) のままでは扱いにくいため、
+            // 1次元のfloat配列に変換して集約するのが一般的です。
+            // あるいは、MPI_Type_vector を使ってカスタムデータ型を定義することも可能ですが、ここでは簡易な1次元配列で説明します。
+
+            // まず、各プロセスのローカルデータを1次元に変換
+            vector<float> local_u_flat( (end_idx - begin_idx) * ny );
+            vector<float> local_v_flat( (end_idx - begin_idx) * ny );
+            vector<float> local_p_flat( (end_idx - begin_idx) * ny );
+
+            int k = 0;
+            for (int j = 0; j < ny; ++j) {
+                for (int i = begin_idx; i < end_idx; ++i) {
+                    local_u_flat[k] = u[j][i];
+                    local_v_flat[k] = v[j][i];
+                    local_p_flat[k] = p[j][i];
+                    k++;
+                }
+            }
+
+            // ランク0が全データを集めるためのグローバル配列
+            vector<float> global_u_flat;
+            vector<float> global_v_flat;
+            vector<float> global_p_flat;
+            if (rank == 0) {
+                global_u_flat.resize(nx * ny);
+                global_v_flat.resize(nx * ny);
+                global_p_flat.resize(nx * ny);
+            }
+
+            // MPI_Gatherv でデータを集約
+            MPI_Gatherv(local_u_flat.data(), (end_idx - begin_idx) * ny, MPI_FLOAT,
+                        global_u_flat.data(), recvcounts.data(), displs.data(), MPI_FLOAT, 0, MPI_COMM_WORLD);
+            MPI_Gatherv(local_v_flat.data(), (end_idx - begin_idx) * ny, MPI_FLOAT,
+                        global_v_flat.data(), recvcounts.data(), displs.data(), MPI_FLOAT, 0, MPI_COMM_WORLD);
+            MPI_Gatherv(local_p_flat.data(), (end_idx - begin_idx) * ny, MPI_FLOAT,
+                        global_p_flat.data(), recvcounts.data(), displs.data(), MPI_FLOAT, 0, MPI_COMM_WORLD);
+
+
             if (rank == 0)
             {
-                // 各プロセスから自分の担当範囲の u, v, p を集める (MPI_GatherV などを使用)
-                // 例えば、全データを集めるためのグローバル配列をランク0で宣言し、
-                // 各プロセスからその配列の対応する部分にデータを送ってもらう。
-                // しかし、これは MPI_Allgather で全データを揃えてから行うのが一般的。
+                // グローバル配列からファイルに書き出す
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
-                        ufile << u[j][i] << " ";
+                        ufile << global_u_flat[j * nx + i] << " "; // 1次元配列から2次元インデックスへの変換
                 }
                 ufile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
-                        vfile << v[j][i] << " ";
+                        vfile << global_v_flat[j * nx + i] << " ";
                 }
                 vfile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
-                        pfile << p[j][i] << " ";
+                        pfile << global_p_flat[j * nx + i] << " ";
                 }
                 pfile << "\n";
             }
