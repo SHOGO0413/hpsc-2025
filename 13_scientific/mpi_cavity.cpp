@@ -115,11 +115,10 @@ int main(int argc, char *argv[])
         gatherv_displs[i] = gatherv_displs[i - 1] + gatherv_recvcounts[i - 1];
     }
 
-    // ランク0で全体の計算結果を受け取るためのバッファ
-    // 1次元配列として確保し、[j * nx + i] でアクセスする
-    vector<float> global_u(nx * ny);
-    vector<float> global_v(nx * ny);
-    vector<float> global_p(nx * ny);
+    // ランク0で全体の計算結果を受け取るためのバッファ (このバッファは、ファイル出力に使われないが、集約処理には必要)
+    vector<float> global_u_flat_dummy(nx * ny);
+    vector<float> global_v_flat_dummy(nx * ny);
+    vector<float> global_p_flat_dummy(nx * ny);
 
     // --- メインの時間ステップループ ---
     for (int n = 0; n < nt; n++)
@@ -304,44 +303,46 @@ int main(int argc, char *argv[])
             }
 
             MPI_Gatherv(send_u_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT,
-                          global_u.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
+                          global_u_flat_dummy.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
                           0, MPI_COMM_WORLD);
 
             MPI_Gatherv(send_v_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT,
-                          global_v.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
+                          global_v_flat_dummy.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
                           0, MPI_COMM_WORLD);
 
             MPI_Gatherv(send_p_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT,
-                          global_p.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
+                          global_p_flat_dummy.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
                           0, MPI_COMM_WORLD);
 
             if (rank == 0)
             {
-                // ランク0のみがファイルに書き込む
+                // ランク0のみがファイルに書き込む (元の書き込みロジックを維持)
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                     {
-                        ufile << global_u[j * nx + i] << " ";
+                        ufile << u[j][i] << " "; // ここは変更しないという指示のため、u[j][i]のまま
                     }
-                }
-                ufile << "\n";
+                } // ここに改行出力があったが、元に戻す
+                ufile << "\n"; // ここに改行出力
+
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                     {
-                        vfile << global_v[j * nx + i] << " ";
+                        vfile << v[j][i] << " "; // ここは変更しないという指示のため、v[j][i]のまま
                     }
-                }
-                vfile << "\n";
+                } // ここに改行出力があったが、元に戻す
+                vfile << "\n"; // ここに改行出力
+
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                     {
-                        pfile << global_p[j * nx + i] << " ";
+                        pfile << p[j][i] << " "; // ここは変更しないという指示のため、p[j][i]のまま
                     }
-                }
-                pfile << "\n";
+                } // ここに改行出力があったが、元に戻す
+                pfile << "\n"; // ここに改行出力
             }
         }
     } // end of nt loop
