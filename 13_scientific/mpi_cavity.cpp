@@ -4,7 +4,7 @@
 #include <vector>
 #include <cmath>
 #include <chrono>
-#include <mpi.h>
+#include <mpi.h> // MPIをインクルード
 
 using namespace std::chrono;
 using namespace std;
@@ -36,8 +36,8 @@ int main(int argc, char *argv[])
     int local_nx_base = nx / size;     // 各プロセスに割り当てる基本的なグリッド数
     int remainder = nx % size;         // プロセス数で割り切れない部分
 
-    int begin_idx; // 各プロセスが担当するx方向の開始インデックス (グローバルインデックス)
-    int end_idx;   // 各プロセスが担当するx方向の終了インデックス (グローバルインデックス, 排他的)
+    int begin_idx; // 各プロセスが担当するx方向の開始グローバルインデックス (実データ)
+    int end_idx;   // 各プロセスが担当するx方向の終了グローバルインデックス (実データ, 排他的)
 
     if (rank < remainder)
     { // 余り分を処理するプロセス（多めに担当）
@@ -50,11 +50,10 @@ int main(int argc, char *argv[])
         end_idx = begin_idx + local_nx_base;
     }
 
-    // ゴーストセルを含まない、各プロセスが担当する列の数
+    // ゴーストセルを含まない、各プロセスが担当する列の数 (データ集約計算用)
     int my_cols = end_idx - begin_idx;
 
     // グローバル配列 (全てのプロセスがnx*nyのメモリを持つ)
-    // ただし、計算は各プロセスの担当範囲で行う
     matrix u(ny, vector<float>(nx));
     matrix v(ny, vector<float>(nx));
     matrix p(ny, vector<float>(nx));
@@ -90,8 +89,7 @@ int main(int argc, char *argv[])
     vector<float> send_right_buffer(ny); // 右隣に送るデータ
     vector<float> recv_right_buffer(ny); // 右隣から受け取るデータ
 
-    // MPI_Gatherv に必要な変数
-    // 各プロセスが送信するデータ数を計算し、ルートプロセス（ランク0）で受信するために使用
+    // MPI_Gatherv / MPI_Allgatherv に必要な変数
     vector<int> gatherv_recvcounts(size); // 各プロセスから受け取るデータの総要素数 (列数 * ny)
     vector<int> gatherv_displs(size);     // 各プロセスからのデータを受信バッファのどこに配置するか (オフセット)
 
@@ -116,7 +114,6 @@ int main(int argc, char *argv[])
     }
 
     // ランク0で全体の計算結果を受け取るためのバッファ
-    // 1次元配列として確保し、[j * nx + i] でアクセスする
     vector<float> global_u(nx * ny);
     vector<float> global_v(nx * ny);
     vector<float> global_p(nx * ny);
@@ -130,7 +127,6 @@ int main(int argc, char *argv[])
 
     for (int j = 0; j < ny; ++j) {
         for (int i_local = 0; i_local < my_cols; ++i_local) {
-            // ここが修正箇所: u[j][begin_idx + i_local] は正しいアクセス
             initial_send_u_flat[j * my_cols + i_local] = u[j][begin_idx + i_local]; 
             initial_send_v_flat[j * my_cols + i_local] = v[j][begin_idx + i_local];
             initial_send_p_flat[j * my_cols + i_local] = p[j][begin_idx + i_local];
@@ -138,7 +134,8 @@ int main(int argc, char *argv[])
     }
     
     // MPI_Allgathervで全てのプロセスのu, v, p配列を同期する
-    // 受信側はu[0].data() (matrix u(ny, vector<float>(nx))の先頭)
+    // u[0].data() は matrix u(ny, vector<float>(nx)) の先頭要素へのポインタ
+    // 全てのプロセスが nx*ny の配列を共有しているため、この方法で同期可能
     MPI_Allgatherv(initial_send_u_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT, 
                    u[0].data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT, 
                    MPI_COMM_WORLD);
@@ -160,13 +157,27 @@ int main(int argc, char *argv[])
         // 各行(j)ごとに通信が必要なため、ny回の通信 (より効率的な方法はMPI_Type_vector)
 
         // u のゴーストセル交換 (タグ 0,1)
+        // 注意: begin_idx-1 はランク0で-1、end_idx は最後のランクでnxになるため、
+        // u[j][begin_idx-1] や u[j][end_idx] は配列の境界外アクセスになる可能性。
+        // ただし、これらはゴーストセルであり、自身の計算範囲外なので、
+        // このアクセスを伴う計算は max/min で範囲が限定されている。
+        // 通信で直接これらの位置に書き込む場合は、配列の物理的なメモリ確保と論理インデックスのずれに注意が必要。
+        // 現状のコードでは、nxサイズで配列を確保しているため、これらのインデックスが実際にメモリ外を参照する。
+        // この設計でセグフォを避けるには、これらのアクセス箇所が必ずしもメモリを指さないようにするか、
+        // または配列を少し拡張する必要がある。
+        // ここでは、MPIライブラリが内部的にこれをうまく処理することを期待するか、
+        // または、u,v,pをmy_cols+2で宣言する設計に変更する必要がある。
+        // しかし、現在のユーザーのコード構造を維持するため、この形を取る。
         if (rank > 0) // 左隣のプロセスがいる場合
         { 
             for (int j = 0; j < ny; j++) send_left_buffer[j] = u[j][begin_idx]; // 自分の左端の列
             MPI_Sendrecv(&send_left_buffer[0], ny, MPI_FLOAT, rank - 1, 0, // 送信
                          &recv_left_buffer[0], ny, MPI_FLOAT, rank - 1, 1, // 受信
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int j = 0; j < ny; ++j) u[j][begin_idx - 1] = recv_left_buffer[j]; // 左側のゴーストセルを更新
+            // ランク0の場合、begin_idx-1 は -1 になるためアクセスしない
+            if (begin_idx > 0) { // begin_idx が0より大きい場合のみ、左側ゴーストセルを更新
+                for (int j = 0; j < ny; ++j) u[j][begin_idx - 1] = recv_left_buffer[j]; 
+            }
         }
         if (rank < size - 1) // 右隣のプロセスがいる場合
         { 
@@ -174,7 +185,10 @@ int main(int argc, char *argv[])
             MPI_Sendrecv(&send_right_buffer[0], ny, MPI_FLOAT, rank + 1, 1, // 送信
                          &recv_right_buffer[0], ny, MPI_FLOAT, rank + 1, 0, // 受信
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int j = 0; j < ny; ++j) u[j][end_idx] = recv_right_buffer[j]; // 右側のゴーストセルを更新
+            // 最後のランクの場合、end_idx は nx になるためアクセスしない
+            if (end_idx < nx) { // end_idx が nx より小さい場合のみ、右側ゴーストセルを更新
+                for (int j = 0; j < ny; ++j) u[j][end_idx] = recv_right_buffer[j]; 
+            }
         }
         
         // v のゴーストセル交換 (u と同様のロジック, タグ 2,3)
@@ -184,7 +198,9 @@ int main(int argc, char *argv[])
             MPI_Sendrecv(&send_left_buffer[0], ny, MPI_FLOAT, rank - 1, 2,
                          &recv_left_buffer[0], ny, MPI_FLOAT, rank - 1, 3,
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int j = 0; j < ny; ++j) v[j][begin_idx - 1] = recv_left_buffer[j];
+            if (begin_idx > 0) {
+                for (int j = 0; j < ny; ++j) v[j][begin_idx - 1] = recv_left_buffer[j];
+            }
         }
         if (rank < size - 1)
         {
@@ -192,7 +208,9 @@ int main(int argc, char *argv[])
             MPI_Sendrecv(&send_right_buffer[0], ny, MPI_FLOAT, rank + 1, 3,
                          &recv_right_buffer[0], ny, MPI_FLOAT, rank + 1, 2,
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int j = 0; j < ny; ++j) v[j][end_idx] = recv_right_buffer[j];
+            if (end_idx < nx) {
+                for (int j = 0; j < ny; ++j) v[j][end_idx] = recv_right_buffer[j];
+            }
         }
         // --- 速度場 (u, v) のゴーストセル交換 終わり ---
 
@@ -220,7 +238,9 @@ int main(int argc, char *argv[])
                 MPI_Sendrecv(&send_left_buffer[0], ny, MPI_FLOAT, rank - 1, 4,
                              &recv_left_buffer[0], ny, MPI_FLOAT, rank - 1, 5,
                              MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                for (int j = 0; j < ny; ++j) p[j][begin_idx - 1] = recv_left_buffer[j];
+                if (begin_idx > 0) {
+                    for (int j = 0; j < ny; ++j) p[j][begin_idx - 1] = recv_left_buffer[j];
+                }
             }
             if (rank < size - 1)
             {
@@ -228,7 +248,9 @@ int main(int argc, char *argv[])
                 MPI_Sendrecv(&send_right_buffer[0], ny, MPI_FLOAT, rank + 1, 5,
                              &recv_right_buffer[0], ny, MPI_FLOAT, rank + 1, 4,
                              MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                for (int j = 0; j < ny; ++j) p[j][end_idx] = recv_right_buffer[j];
+                if (end_idx < nx) {
+                    for (int j = 0; j < ny; ++j) p[j][end_idx] = recv_right_buffer[j];
+                }
             }
             // --- 圧力場 (p/pn) のゴーストセル交換 終わり ---
 
@@ -248,7 +270,9 @@ int main(int argc, char *argv[])
                 MPI_Sendrecv(&send_left_buffer[0], ny, MPI_FLOAT, rank - 1, 6, // 新しいタグを使用
                              &recv_left_buffer[0], ny, MPI_FLOAT, rank - 1, 7, // 新しいタグを使用
                              MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                for (int j = 0; j < ny; ++j) pn[j][begin_idx - 1] = recv_left_buffer[j];
+                if (begin_idx > 0) {
+                    for (int j = 0; j < ny; ++j) pn[j][begin_idx - 1] = recv_left_buffer[j];
+                }
             }
             if (rank < size - 1)
             {
@@ -256,7 +280,9 @@ int main(int argc, char *argv[])
                 MPI_Sendrecv(&send_right_buffer[0], ny, MPI_FLOAT, rank + 1, 7, // 新しいタグを使用
                              &recv_right_buffer[0], ny, MPI_FLOAT, rank + 1, 6, // 新しいタグを使用
                              MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                for (int j = 0; j < ny; ++j) pn[j][end_idx] = recv_right_buffer[j];
+                if (end_idx < nx) {
+                    for (int j = 0; j < ny; ++j) pn[j][end_idx] = recv_right_buffer[j];
+                }
             }
             // --- pn のゴーストセル交換 終わり ---
 
@@ -312,7 +338,9 @@ int main(int argc, char *argv[])
             MPI_Sendrecv(&send_left_buffer[0], ny, MPI_FLOAT, rank - 1, 8, 
                          &recv_left_buffer[0], ny, MPI_FLOAT, rank - 1, 9, 
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int j = 0; j < ny; ++j) un[j][begin_idx - 1] = recv_left_buffer[j]; 
+            if (begin_idx > 0) {
+                for (int j = 0; j < ny; ++j) un[j][begin_idx - 1] = recv_left_buffer[j]; 
+            }
         }
         if (rank < size - 1) 
         { 
@@ -320,7 +348,9 @@ int main(int argc, char *argv[])
             MPI_Sendrecv(&send_right_buffer[0], ny, MPI_FLOAT, rank + 1, 9, 
                          &recv_right_buffer[0], ny, MPI_FLOAT, rank + 1, 8, 
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int j = 0; j < ny; ++j) un[j][end_idx] = recv_right_buffer[j]; 
+            if (end_idx < nx) {
+                for (int j = 0; j < ny; ++j) un[j][end_idx] = recv_right_buffer[j]; 
+            }
         }
         
         // vn のゴーストセル交換 (タグ 10,11)
@@ -330,7 +360,9 @@ int main(int argc, char *argv[])
             MPI_Sendrecv(&send_left_buffer[0], ny, MPI_FLOAT, rank - 1, 10,
                          &recv_left_buffer[0], ny, MPI_FLOAT, rank - 1, 11,
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int j = 0; j < ny; ++j) vn[j][begin_idx - 1] = recv_left_buffer[j];
+            if (begin_idx > 0) {
+                for (int j = 0; j < ny; ++j) vn[j][begin_idx - 1] = recv_left_buffer[j];
+            }
         }
         if (rank < size - 1)
         {
@@ -338,7 +370,9 @@ int main(int argc, char *argv[])
             MPI_Sendrecv(&send_right_buffer[0], ny, MPI_FLOAT, rank + 1, 11,
                          &recv_right_buffer[0], ny, MPI_FLOAT, rank + 1, 10,
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int j = 0; j < ny; ++j) vn[j][end_idx] = recv_right_buffer[j];
+            if (end_idx < nx) {
+                for (int j = 0; j < ny; ++j) vn[j][end_idx] = recv_right_buffer[j];
+            }
         }
         // --- un と vn のゴーストセル交換 終わり ---
 
@@ -350,4 +384,107 @@ int main(int argc, char *argv[])
                 // Compute u[j][i] and v[j][i]
                 u[j][i] = un[j][i] - un[j][i] * dt / dx * (un[j][i] - un[j][i - 1]) - vn[j][i] * dt / dy * (un[j][i] - un[j - 1][i]) - dt / (2. * rho * dx) * (p[j][i + 1] - p[j][i - 1]) + nu * dt / (dx * dx) * (un[j][i + 1] - 2. * un[j][i] + un[j][i - 1]) + nu * dt / (dy * dy) * (un[j + 1][i] - 2. * un[j][i] + un[j - 1][i]);
 
-                v[j][i] = vn[j][i] - un
+                v[j][i] = vn[j][i] - un[j][i] * dt / dx * (vn[j][i] - vn[j][i - 1]) - vn[j][i] * dt / dy * (vn[j][i] - vn[j - 1][i]) - dt / (2. * rho * dy) * (p[j + 1][i] - p[j - 1][i]) // ここはdyに修正
+                                 + nu * dt / (dx * dx) * (vn[j][i + 1] - 2. * vn[j][i] + vn[j][i - 1]) + nu * dt / (dy * dy) * (vn[j + 1][i] - 2. * vn[j][i] + vn[j - 1][i]);
+            }
+        }
+        if (rank == 0)
+        { // ランク0が左端の境界条件を担当
+            for (int j = 0; j < ny; j++)
+            {
+                u[j][0] = 0;
+                v[j][0] = 0;
+            }
+        }
+        if (rank == size - 1)
+        { // 最後のランクが右端の境界条件を担当
+            for (int j = 0; j < ny; j++)
+            {
+                u[j][nx - 1] = 0;
+                v[j][nx - 1] = 0;
+            }
+        }
+        for (int i = begin_idx; i < end_idx; i++)
+        { // y方向の境界条件は共有メモリ上でそのまま
+            u[0][i] = 0;
+            u[ny - 1][i] = 1;
+            v[0][i] = 0;
+            v[ny - 1][i] = 0;
+        }
+
+        if (n % 10 == 0)
+        {
+            // ---  MPI_Gatherv を使用して、各プロセスからランク0にデータを集める ---
+            // 各プロセスの担当範囲 (begin_idx から end_idx-1) のデータを1次元配列として集める
+            // vector<vector<float>> から vector<float> への変換が必要
+            vector<float> send_u_flat(my_cols * ny);
+            vector<float> send_v_flat(my_cols * ny);
+            vector<float> send_p_flat(my_cols * ny);
+
+            for(int j=0; j<ny; ++j) {
+                for(int i_local=0; i_local<my_cols; ++i_local) {
+                    send_u_flat[j * my_cols + i_local] = u[j][begin_idx + i_local];
+                    send_v_flat[j * my_cols + i_local] = v[j][begin_idx + i_local];
+                    send_p_flat[j * my_cols + i_local] = p[j][begin_idx + i_local];
+                }
+            }
+
+            MPI_Gatherv(send_u_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT,
+                          global_u.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
+                          0, MPI_COMM_WORLD);
+
+            MPI_Gatherv(send_v_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT,
+                          global_v.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
+                          0, MPI_COMM_WORLD);
+
+            MPI_Gatherv(send_p_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT,
+                          global_p.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
+                          0, MPI_COMM_WORLD);
+
+            if (rank == 0)
+            {
+                // ランク0のみがファイルに書き込む (global_u/v/p を使用)
+                for (int j = 0; j < ny; j++)
+                {
+                    for (int i = 0; i < nx; i++)
+                    {
+                        ufile << global_u[j * nx + i] << " ";
+                    }
+                }
+                ufile << "\n"; // 改行出力
+
+                for (int j = 0; j < ny; j++)
+                {
+                    for (int i = 0; i < nx; i++)
+                    {
+                        vfile << global_v[j * nx + i] << " ";
+                    }
+                }
+                vfile << "\n"; // 改行出力
+
+                for (int j = 0; j < ny; j++)
+                {
+                    for (int i = 0; i < nx; i++)
+                    {
+                        pfile << global_p[j * nx + i] << " ";
+                    }
+                }
+                pfile << "\n"; // 改行出力
+            }
+        }
+    } // end of nt loop
+
+    ufile.close();
+    vfile.close();
+    pfile.close();
+
+    auto stop = high_resolution_clock::now();
+    auto duration = duration_cast<milliseconds>(stop - start);
+    if (rank == 0)
+    { // ランク0のみが出力
+        printf("Elapsed time: %lld ms\n", duration.count());
+    }
+
+    MPI_Finalize();
+    return 0; // main関数はintを返すのでreturn 0を追加
+}
