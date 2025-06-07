@@ -320,7 +320,7 @@ int main(int argc, char *argv[])
                           + nu * dt / (dx * dx) * (vn[j][i + 1] - 2. * vn[j][i] + vn[j][i - 1]) + nu * dt / (dy * dy) * (vn[j + 1][i] - 2. * vn[j][i] + vn[j - 1][i]);
             }
         }
-        if (rank == 1)
+        if (rank == 0)
         { // ランク0が左端の境界条件を担当
             for (int j = 0; j < ny; j++)
             {
@@ -346,7 +346,7 @@ int main(int argc, char *argv[])
 
         if (n % 10 == 0)
         {
-            if (rank == 0)
+            if (rank == 1)
             {
                 // 各プロセスから自分の担当範囲の u, v, p を集める (MPI_GatherV などを使用)
                 // 例えば、全データを集めるためのグローバル配列をランク0で宣言し、
