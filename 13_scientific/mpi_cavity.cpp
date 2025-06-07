@@ -74,25 +74,27 @@ int main(int argc, char *argv[])
     vector<float> send_right_buffer(ny);
     vector<float> recv_right_buffer(ny);
     
-    // 全てのデータを集めるためのグローバルな配列 (rank 0 のみで確保)
-    // この vector<vector<float>> はメモリが連続しているとは限らないが、
-    // MPI_Gathervのrecvbufには global_u_data[0].data() のように
-    // 1次元配列のように連続した領域のポインタを渡す想定。
-    // この場合、ny * nx 個の float 型要素が連続している必要がある。
-    // そのためには、global_u_data を vector<float>(ny * nx) として宣言し、
-    // 2次元アクセスを `[j * nx + i]` のように変換する必要がある。
-    // あるいは、`global_u_data[0].data()` が指すメモリ領域が
-    // ny * nx の要素を格納するのに十分な連続性を持っていることを前提とする。
-    // ここでは、現在のmatrix定義を維持するため、その前提で進める。
-    // ただし、より堅牢な実装には1次元vectorへの変更を推奨。
-    matrix global_u_data(ny, vector<float>(nx));
-    matrix global_v_data(ny, vector<float>(nx));
-    matrix global_p_data(ny, vector<float>(nx)); // global_p_data(ny, vector<float>(nx))のtypo修正
+    // グローバルデータ配列を1次元の std::vector<float> に変更 (ランク0のみで確保)
+    vector<float> global_u_flat_data;
+    vector<float> global_v_flat_data;
+    vector<float> global_p_flat_data;
+
+    // --- 追加点1: ランク0で復元した2次元行列を宣言 ---
+    matrix global_u_matrix(ny, vector<float>(nx));
+    matrix global_v_matrix(ny, vector<float>(nx));
+    matrix global_p_matrix(ny, vector<float>(nx));
+    // --- 追加点1 終わり ---
+
+    if (rank == 0) {
+        global_u_flat_data.resize(nx * ny);
+        global_v_flat_data.resize(nx * ny);
+        global_p_flat_data.resize(nx * ny);
+    }
 
     // 各プロセスのデータ量とオフセットを計算 (全プロセスで実行)
     vector<int> recvcounts(size);
     vector<int> displs(size);
-    int current_global_x_offset = 0; 
+    int current_global_x_offset_cols = 0;
     for (int r = 0; r < size; ++r) { 
         int r_local_nx; 
         if (r < remainder) {
@@ -101,9 +103,9 @@ int main(int argc, char *argv[])
             r_local_nx = local_nx_base;     
         }
         
-        recvcounts[r] = r_local_nx * ny; 
-        displs[r] = current_global_x_offset * ny; 
-        current_global_x_offset += r_local_nx;
+        recvcounts[r] = r_local_nx * ny;
+        displs[r] = current_global_x_offset_cols * ny;
+        current_global_x_offset_cols += r_local_nx;
     }
 
     for (int n = 0; n < nt; n++)
@@ -348,37 +350,48 @@ int main(int argc, char *argv[])
 
             int buf_idx = 0;
             for (int j = 0; j < ny; ++j) {
-                for (int i = begin_idx; i < end_idx; ++i) {
-                    local_u_flat[buf_idx] = u[j][i];
-                    local_v_flat[buf_idx] = v[j][i];
-                    local_p_flat[buf_idx] = p[j][i];
+                for (int i_local = 0; i_local < current_local_nx; ++i_local) {
+                    local_u_flat[buf_idx] = u[j][begin_idx + i_local];
+                    local_v_flat[buf_idx] = v[j][begin_idx + i_local];
+                    local_p_flat[buf_idx] = p[j][begin_idx + i_local];
                     buf_idx++;
                 }
             }
 
             // ランク0に全てのデータを集める
             MPI_Gatherv(local_u_flat.data(), ny * current_local_nx, MPI_FLOAT,
-                        global_u_data[0].data(), recvcounts.data(), displs.data(), MPI_FLOAT,
+                        global_u_flat_data.data(), recvcounts.data(), displs.data(), MPI_FLOAT,
                         0, MPI_COMM_WORLD);
             MPI_Gatherv(local_v_flat.data(), ny * current_local_nx, MPI_FLOAT,
-                        global_v_data[0].data(), recvcounts.data(), displs.data(), MPI_FLOAT,
+                        global_v_flat_data.data(), recvcounts.data(), displs.data(), MPI_FLOAT,
                         0, MPI_COMM_WORLD);
             MPI_Gatherv(local_p_flat.data(), ny * current_local_nx, MPI_FLOAT,
-                        global_p_data[0].data(), recvcounts.data(), displs.data(), MPI_FLOAT,
+                        global_p_flat_data.data(), recvcounts.data(), displs.data(), MPI_FLOAT,
                         0, MPI_COMM_WORLD);
 
             if (rank == 0)
             {
+                // --- 追加点2: 1次元バッファから2次元行列に復元 ---
+                for (int j = 0; j < ny; ++j) {
+                    for (int i = 0; i < nx; ++i) {
+                        global_u_matrix[j][i] = global_u_flat_data[j * nx + i];
+                        global_v_matrix[j][i] = global_v_flat_data[j * nx + i];
+                        global_p_matrix[j][i] = global_p_flat_data[j * nx + i];
+                    }
+                }
+                // --- 追加点2 終わり ---
+
                 // ランク0のみがファイルを開いて書き込む
                 ofstream ufile_out("u.dat", ios_base::app); 
                 ofstream vfile_out("v.dat", ios_base::app);
                 ofstream pfile_out("p.dat", ios_base::app);
 
+                // 復元した2次元行列をファイルに書き込み
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                     {
-                        ufile_out << global_u_data[j][i] << " ";
+                        ufile_out << global_u_matrix[j][i] << " ";
                     }
                 }
                 ufile_out << "\n"; 
@@ -387,7 +400,7 @@ int main(int argc, char *argv[])
                 {
                     for (int i = 0; i < nx; i++)
                     {
-                        vfile_out << global_v_data[j][i] << " ";
+                        vfile_out << global_v_matrix[j][i] << " ";
                     }
                 }
                 vfile_out << "\n";
@@ -396,7 +409,7 @@ int main(int argc, char *argv[])
                 {
                     for (int i = 0; i < nx; i++)
                     {
-                        pfile_out << global_p_data[j][i] << " ";
+                        pfile_out << global_p_matrix[j][i] << " ";
                     }
                 }
                 pfile_out << "\n";
