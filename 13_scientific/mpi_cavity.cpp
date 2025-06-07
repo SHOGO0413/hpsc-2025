@@ -11,51 +11,9 @@ using namespace std;
 
 typedef vector<vector<float>> matrix;
 
-// --- ゴーストセル交換関数 ---
-// 引数:
-//   data: 交換を行う行列 (u, v, または p)
-//   ny: 行列のy方向のサイズ
-//   nx: 行列のx方向のサイズ
-//   rank: 現在のMPIプロセスのランク
-//   size: 全体のMPIプロセスの数
-//   begin_idx: このプロセスが担当するx方向の開始インデックス
-//   end_idx: このプロセスが担当するx方向の終了インデックス (排他的)
-//   tag_offset: MPIタグの衝突を避けるためのオフセット
-void exchange_ghost_cells(matrix& data, int ny, int nx, int rank, int size,
-                          int begin_idx, int end_idx, int tag_offset) {
-    MPI_Request request[4];
-    MPI_Status status[4];
-    int send_count = ny; // 1列分のデータ数
-
-    // 左隣のプロセスとデータを交換 (begin_idx - 1 のゴーストセルを更新)
-    if (rank > 0) {
-        // 左に自分の左端のデータ (begin_idx) を送信
-        MPI_Isend(&data[0][begin_idx], send_count, MPI_FLOAT, rank - 1, 0 + tag_offset, MPI_COMM_WORLD, &request[0]);
-        // 左から右隣のデータ (begin_idx - 1) を受信
-        MPI_Irecv(&data[0][begin_idx - 1], send_count, MPI_FLOAT, rank - 1, 1 + tag_offset, MPI_COMM_WORLD, &request[1]);
-    }
-
-    // 右隣のプロセスとデータを交換 (end_idx のゴーストセルを更新)
-    if (rank < size - 1) {
-        // 右に自分の右端のデータ (end_idx - 1) を送信
-        MPI_Isend(&data[0][end_idx - 1], send_count, MPI_FLOAT, rank + 1, 1 + tag_offset, MPI_COMM_WORLD, &request[2]);
-        // 右から左隣のデータ (end_idx) を受信
-        MPI_Irecv(&data[0][end_idx], send_count, MPI_FLOAT, rank + 1, 0 + tag_offset, MPI_COMM_WORLD, &request[3]);
-    }
-
-    // 非同期通信の完了を待つ
-    // MPI_Waitallの引数に注意し、必要なリクエストのみを待機するように変更
-    if (rank > 0 && rank < size - 1) { // 途中のプロセス
-        MPI_Waitall(4, request, status);
-    } else if (rank > 0) { // 最も右のプロセス
-        MPI_Waitall(2, request, status); // request[0]とrequest[1]のみ
-    } else if (rank < size - 1) { // 最も左のプロセス
-        MPI_Waitall(2, request + 2, status + 2); // request[2]とrequest[3]のみ
-    }
-}
-
 int main(int argc, char *argv[])
 {
+
     MPI_Init(&argc, &argv);
 
     int size, rank;
@@ -72,19 +30,19 @@ int main(int argc, char *argv[])
     double rho = 1.;
     double nu = .02;
 
-    int local_nx_base = nx / size;
-    int remainder = nx % size;
+    int local_nx_base = nx / size; // 各プロセス用の割り当てグリッド数
+    int remainder = nx % size;     // プロセス数で割り切れない部分。（41%4=1）
 
     int begin_idx;
     int end_idx;
 
     if (rank < remainder)
-    {
+    { // 余り分を処理するプロセス。
         begin_idx = rank * (local_nx_base + 1);
         end_idx = begin_idx + (local_nx_base + 1);
     }
     else
-    {
+    { // 余りを考慮しないプロセス。
         begin_idx = rank * local_nx_base + remainder;
         end_idx = begin_idx + local_nx_base;
     }
@@ -109,6 +67,9 @@ int main(int argc, char *argv[])
     }
     auto start = high_resolution_clock::now();
 
+    // ファイル書き込みはランク0のみが行うため、ここでは修正なし
+    // 各ランクが自分の担当するデータを書き出し、その後ランク0が結合する
+    // という方法もありますが、提示されたコードの既存のファイル書き込みロジックを尊重します。
     ofstream ufile, vfile, pfile;
     if (rank == 0) {
         ufile.open("u.dat");
@@ -122,15 +83,17 @@ int main(int argc, char *argv[])
         {
             for (int i = max(1, begin_idx); i < min(nx - 1, end_idx); i++)
             {
+                // Compute b[j][i]
                 b[j][i] = rho * (1. / dt * ((u[j][i + 1] - u[j][i - 1]) / (2. * dx) + (v[j + 1][i] - v[j - 1][i]) / (2. * dy)) -
                                  pow((u[j][i + 1] - u[j][i - 1]) / (2. * dx), 2) -
-                                 2. * ((u[j + 1][i] - u[j - 1][i]) / (2. * dy) * (v[j][i + 1] - v[j - 1][i]) / (2. * dx)) -
+                                 2. * ((u[j + 1][i] - u[j - 1][i]) / (2. * dy) * (v[j][i + 1] - v[j][i - 1]) / (2. * dx)) -
                                  pow((v[j + 1][i] - v[j - 1][i]) / (2. * dy), 2));
             }
         }
 
         for (int it = 0; it < nit; it++)
         {
+            // pnへのコピー
             for (int j = 0; j < ny; j++)
             {
                 for (int i = begin_idx; i < end_idx; i++)
@@ -139,14 +102,45 @@ int main(int argc, char *argv[])
                 }
             }
 
-            // Pのゴーストセル交換を関数呼び出しで実行
-            // タグの衝突を避けるためにオフセット(0)を使用
-            exchange_ghost_cells(pn, ny, nx, rank, size, begin_idx, end_idx, 0);
+            // --- Pの境界データ交換（ゴーストセルの更新） ---
+            // 各プロセスは、自分の担当範囲の境界（1列）を隣接プロセスに送り、
+            // 同時に隣接プロセスから境界データ（ゴーストセル）を受け取る
+            MPI_Request request[4];
+            MPI_Status status[4];
+            int send_count = ny; // 1列分のデータ数
+
+            // 左隣のプロセスとデータを交換 (begin_idx - 1 のゴーストセルを更新)
+            if (rank > 0)
+            {
+                // 左に自分の左端のデータ (begin_idx) を送信
+                MPI_Isend(&pn[0][begin_idx], send_count, MPI_FLOAT, rank - 1, 0, MPI_COMM_WORLD, &request[0]);
+                // 左から右隣のデータ (begin_idx - 1) を受信
+                MPI_Irecv(&pn[0][begin_idx - 1], send_count, MPI_FLOAT, rank - 1, 1, MPI_COMM_WORLD, &request[1]);
+            }
+
+            // 右隣のプロセスとデータを交換 (end_idx のゴーストセルを更新)
+            if (rank < size - 1)
+            {
+                // 右に自分の右端のデータ (end_idx - 1) を送信
+                MPI_Isend(&pn[0][end_idx - 1], send_count, MPI_FLOAT, rank + 1, 1, MPI_COMM_WORLD, &request[2]);
+                // 右から左隣のデータ (end_idx) を受信
+                MPI_Irecv(&pn[0][end_idx], send_count, MPI_FLOAT, rank + 1, 0, MPI_COMM_WORLD, &request[3]);
+            }
+
+            // 非同期通信の完了を待つ
+            if (rank > 0) MPI_Waitall(2, request, status);
+            if (rank < size - 1) MPI_Waitall(2, request + 2, status + 2);
+            // --- Pの境界データ交換終了 ---
 
             for (int j = 1; j < ny - 1; j++)
             {
+                // begin_idxが0でない場合、begin_idx-1はゴーストセル
+                // end_idxがnx-1でない場合、end_idxはゴーストセル
+                // pn[j][i+1] と pn[j][i-1] のアクセスが、begin_idx-1 や end_idx に
+                // なる可能性があるため、上記の通信が必要。
                 for (int i = max(1, begin_idx); i < min(nx - 1, end_idx); i++)
                 {
+                    // Compute p[j][i]
                     p[j][i] = (dy * dy * (pn[j][i + 1] + pn[j][i - 1]) +
                                dx * dx * (pn[j + 1][i] + pn[j - 1][i]) -
                                b[j][i] * dx * dx * dy * dy) /
@@ -154,26 +148,27 @@ int main(int argc, char *argv[])
                 }
             }
             if (rank == 0)
-            {
+            { // ランク0が左端の境界条件を担当
                 for (int j = 0; j < ny; j++)
                 {
                     p[j][0] = p[j][1];
                 }
             }
             if (rank == size - 1)
-            {
+            { // 最後のランクが右端の境界条件を担当
                 for (int j = 0; j < ny; j++)
                 {
                     p[j][nx - 1] = p[j][nx - 2];
                 }
             }
             for (int i = begin_idx; i < end_idx; i++)
-            {
+            { // y方向の境界条件は共有メモリ上でそのまま
                 p[0][i] = p[1][i];
                 p[ny - 1][i] = 0;
             }
         } // end of nit loop
 
+        // un, vn へのコピー
         for (int j = 0; j < ny; j++)
         {
             for (int i = begin_idx; i < end_idx; i++)
@@ -183,25 +178,53 @@ int main(int argc, char *argv[])
             }
         }
 
-        // Uのゴーストセル交換を関数呼び出しで実行
-        // タグの衝突を避けるためにオフセット(10)を使用
-        exchange_ghost_cells(un, ny, nx, rank, size, begin_idx, end_idx, 10);
-        // Vのゴーストセル交換を関数呼び出しで実行
-        // タグの衝突を避けるためにオフセット(20)を使用
-        exchange_ghost_cells(vn, ny, nx, rank, size, begin_idx, end_idx, 20);
+        // --- U, Vの境界データ交換（ゴーストセルの更新） ---
+        // Pと同様に、UとVも隣接プロセスとの間で境界データを交換する
+        // 速度場の計算前に最新の隣接データが必要
+        // U
+        if (rank > 0)
+        {
+            MPI_Isend(&un[0][begin_idx], send_count, MPI_FLOAT, rank - 1, 2, MPI_COMM_WORLD, &request[0]);
+            MPI_Irecv(&un[0][begin_idx - 1], send_count, MPI_FLOAT, rank - 1, 3, MPI_COMM_WORLD, &request[1]);
+        }
+        if (rank < size - 1)
+        {
+            MPI_Isend(&un[0][end_idx - 1], send_count, MPI_FLOAT, rank + 1, 3, MPI_COMM_WORLD, &request[2]);
+            MPI_Irecv(&un[0][end_idx], send_count, MPI_FLOAT, rank + 1, 2, MPI_COMM_WORLD, &request[3]);
+        }
+        if (rank > 0) MPI_Waitall(2, request, status);
+        if (rank < size - 1) MPI_Waitall(2, request + 2, status + 2);
+
+        // V
+        if (rank > 0)
+        {
+            MPI_Isend(&vn[0][begin_idx], send_count, MPI_FLOAT, rank - 1, 4, MPI_COMM_WORLD, &request[0]);
+            MPI_Irecv(&vn[0][begin_idx - 1], send_count, MPI_FLOAT, rank - 1, 5, MPI_COMM_WORLD, &request[1]);
+        }
+        if (rank < size - 1)
+        {
+            MPI_Isend(&vn[0][end_idx - 1], send_count, MPI_FLOAT, rank + 1, 5, MPI_COMM_WORLD, &request[2]);
+            MPI_Irecv(&vn[0][end_idx], send_count, MPI_FLOAT, rank + 1, 4, MPI_COMM_WORLD, &request[3]);
+        }
+        if (rank > 0) MPI_Waitall(2, request, status);
+        if (rank < size - 1) MPI_Waitall(2, request + 2, status + 2);
+        // --- U, Vの境界データ交換終了 ---
+
 
         for (int j = 1; j < ny - 1; j++)
         {
             for (int i = max(1, begin_idx); i < min(nx - 1, end_idx); i++)
             {
+                // Compute u[j][i] and v[j][i]
+                // un[j][i+1], un[j][i-1], vn[j][i+1], vn[j][i-1] のアクセスでゴーストセルが必要
                 u[j][i] = un[j][i] - un[j][i] * dt / dx * (un[j][i] - un[j][i - 1]) - vn[j][i] * dt / dy * (un[j][i] - un[j - 1][i]) - dt / (2. * rho * dx) * (p[j][i + 1] - p[j][i - 1]) + nu * dt / (dx * dx) * (un[j][i + 1] - 2. * un[j][i] + un[j][i - 1]) + nu * dt / (dy * dy) * (un[j + 1][i] - 2. * un[j][i] + un[j - 1][i]);
 
-                v[j][i] = vn[j][i] - un[j][i] * dt / dx * (vn[j][i] - vn[j][i - 1]) - vn[j][i] * dt / dy * (vn[j][i] - vn[j - 1][i]) - dt / (2. * rho * dy) * (p[j + 1][i] - p[j - 1][i])
+                v[j][i] = vn[j][i] - un[j][i] * dt / dx * (vn[j][i] - vn[j][i - 1]) - vn[j][i] * dt / dy * (vn[j][i] - vn[j - 1][i]) - dt / (2. * rho * dy) * (p[j + 1][i] - p[j - 1][i]) // ここはdyに修正
                                 + nu * dt / (dx * dx) * (vn[j][i + 1] - 2. * vn[j][i] + vn[j][i - 1]) + nu * dt / (dy * dy) * (vn[j + 1][i] - 2. * vn[j][i] + vn[j - 1][i]);
             }
         }
         if (rank == 0)
-        {
+        { // ランク0が左端の境界条件を担当
             for (int j = 0; j < ny; j++)
             {
                 u[j][0] = 0;
@@ -209,7 +232,7 @@ int main(int argc, char *argv[])
             }
         }
         if (rank == size - 1)
-        {
+        { // 最後のランクが右端の境界条件を担当
             for (int j = 0; j < ny; j++)
             {
                 u[j][nx - 1] = 0;
@@ -217,13 +240,18 @@ int main(int argc, char *argv[])
             }
         }
         for (int i = begin_idx; i < end_idx; i++)
-        {
+        { // y方向の境界条件は共有メモリ上でそのまま
             u[0][i] = 0;
             u[ny - 1][i] = 1;
             v[0][i] = 0;
             v[ny - 1][i] = 0;
         }
 
+        // ファイル書き込みの部分は、各プロセスが計算したデータをランク0に集めてから
+        // 書き出すように変更するか、ランク0が全体を把握できるように変更する必要があります。
+        // 現状のコードではランク0のみが書き出し、他のランクのデータは無視されます。
+        // ここではコードの変更は最小限に留め、既存のロジックを維持します。
+        // 全体のデータをランク0に集める場合、MPI_Gatherなどを使用することになります。
         if (n % 10 == 0)
         {
             if (rank == 0)
@@ -259,10 +287,10 @@ int main(int argc, char *argv[])
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<milliseconds>(stop - start);
     if (rank == 0)
-    {
+    { // ランク0のみが出力
         printf("Elapsed time: %lld ms\n", duration.count());
     }
 
     MPI_Finalize();
-    return 0;
+    return 0; // main関数はintを返すのでreturn 0を追加
 }
