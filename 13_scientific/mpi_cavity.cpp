@@ -356,20 +356,20 @@ int main(int argc, char *argv[])
                 {
                     for (int i = 0; i < nx; i++)
                         ufile << u[j][i] << " ";
-                    ufile << "\n";
                 }
+                ufile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                         vfile << v[j][i] << " ";
-                    vfile << "\n";
                 }
+                vfile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                         pfile << p[j][i] << " ";
-                    pfile << "\n";
                 }
+                pfile << "\n";
             }
         }
     } // end of nt loop
