@@ -77,6 +77,58 @@ int main(int argc, char *argv[])
     vector<float> send_right_buffer(ny); // 右隣に送るデータ
     vector<float> recv_right_buffer(ny); // 右隣から受け取るデータ
 
+    // バッファの用意: 1列分のデータを送受信するためのテンポラリ配列
+    // ny行分のデータを送受信するため、サイズは ny
+    vector<float> send_left_buffer(ny);  // 左隣に送るデータ
+    vector<float> recv_left_buffer(ny);  // 左隣から受け取るデータ
+    vector<float> send_right_buffer(ny); // 右隣に送るデータ
+    vector<float> recv_right_buffer(ny); // 右隣から受け取るデータ
+
+    // --- ここに、毎回ループ内で定義していた一時バッファを移動 ---
+    // local_num_cols は各プロセスの担当列数で、ループ内で変化しないため、
+    // ループ外で一度だけサイズを計算してバッファを定義できる。
+    int local_num_cols = end_idx - begin_idx;
+    vector<float> local_u_flat(local_num_cols * ny);
+    vector<float> local_v_flat(local_num_cols * ny);
+    vector<float> local_p_flat(local_num_cols * ny);
+
+    // global_u_data などもランク0だけで必要なので、ランク0のスコープに移動しつつ、
+    // ループ外で定義できるように変更
+    vector<float> global_u_data;
+    vector<float> global_v_data;
+    vector<float> global_p_data;
+    vector<int> recvcounts(size); // 各プロセスが送る列数 (ny行分のデータなので、ny * 列数)
+    vector<int> displs(size);     // ランク0の受信バッファにおける開始位置
+
+    if (rank == 0) {
+        global_u_data.resize(nx * ny);
+        global_v_data.resize(nx * ny);
+        global_p_data.resize(nx * ny);
+
+        // recvcounts と displs の計算は、ループ内でデータが変わらないので、
+        // ランク0で一度だけ計算すればよい。
+        for (int i = 0; i < size; ++i)
+        {
+            int current_local_nx;
+            if (i < remainder)
+            {
+                current_local_nx = local_nx_base + 1;
+            }
+            else
+            {
+                current_local_nx = local_nx_base;
+            }
+            recvcounts[i] = current_local_nx * ny; // 各プロセスから受け取る要素数 (列数 * 行数)
+
+            // オフセット計算
+            if (i == 0) {
+                displs[i] = 0;
+            } else {
+                displs[i] = displs[i-1] + recvcounts[i-1];
+            }
+        }
+    }
+
     for (int n = 0; n < nt; n++)
     {
         // --- 速度場 (u, v) のゴーストセル交換 ---
@@ -347,28 +399,46 @@ int main(int argc, char *argv[])
 
         if (n % 10 == 0)
         {
+            // ローカルのデータを行ごとに連続したバッファにコピー
+            // バッファはすでにループ外で定義済みなので、再利用する。
+            for (int j = 0; j < ny; ++j) {
+                for (int i = 0; i < local_num_cols; ++i) {
+                    local_u_flat[j * local_num_cols + i] = u[j][begin_idx + i];
+                    local_v_flat[j * local_num_cols + i] = v[j][begin_idx + i];
+                    local_p_flat[j * local_num_cols + i] = p[j][begin_idx + i];
+                }
+            }
+
+            // MPI_Gatherv でデータをランク0に集約
+            MPI_Gatherv(&local_u_flat[0], local_num_cols * ny, MPI_FLOAT,
+                        (rank == 0 ? &global_u_data[0] : nullptr), &recvcounts[0], &displs[0], MPI_FLOAT,
+                        0, MPI_COMM_WORLD);
+            MPI_Gatherv(&local_v_flat[0], local_num_cols * ny, MPI_FLOAT,
+                        (rank == 0 ? &global_v_data[0] : nullptr), &recvcounts[0], &displs[0], MPI_FLOAT,
+                        0, MPI_COMM_WORLD);
+            MPI_Gatherv(&local_p_flat[0], local_num_cols * ny, MPI_FLOAT,
+                        (rank == 0 ? &global_p_data[0] : nullptr), &recvcounts[0], &displs[0], MPI_FLOAT,
+                        0, MPI_COMM_WORLD);
+
             if (rank == 0)
             {
-                // 各プロセスから自分の担当範囲の u, v, p を集める (MPI_GatherV などを使用)
-                // 例えば、全データを集めるためのグローバル配列をランク0で宣言し、
-                // 各プロセスからその配列の対応する部分にデータを送ってもらう。
-                // しかし、これは MPI_Allgather で全データを揃えてから行うのが一般的。
+                // 集約されたデータをファイルに書き込む
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
-                        ufile << u[j][i] << " ";
+                        ufile << global_u_data[j * nx + i] << " ";
                     ufile << "\n";
                 }
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
-                        vfile << v[j][i] << " ";
+                        vfile << global_v_data[j * nx + i] << " ";
                     vfile << "\n";
                 }
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
-                        pfile << p[j][i] << " ";
+                        pfile << global_p_data[j * nx + i] << " ";
                     pfile << "\n";
                 }
             }
