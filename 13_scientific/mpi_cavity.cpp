@@ -390,36 +390,36 @@ int main(int argc, char *argv[])
                 {
                     for (int i = 0; i < nx; i++)
                     {
-                        ufile_out << global_u_matrix[j][i] << " ";
+                        ufile << global_u_matrix[j][i] << " ";
                     }
                 }
-                ufile_out << "\n"; 
+                ufile << "\n"; 
 
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                     {
-                        vfile_out << global_v_matrix[j][i] << " ";
+                        vfile << global_v_matrix[j][i] << " ";
                     }
                 }
-                vfile_out << "\n";
+                vfile << "\n";
 
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                     {
-                        pfile_out << global_p_matrix[j][i] << " ";
+                        pfile << global_p_matrix[j][i] << " ";
                     }
                 }
-                pfile_out << "\n";
+                pfile << "\n";
 
             }
         }
     } // end of nt loop
 
-    ufile_out.close();
-    vfile_out.close();
-    pfile_out.close();
+    ufile.close();
+    vfile.close();
+    pfile.close();
     
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<milliseconds>(stop - start);
