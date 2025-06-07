@@ -320,7 +320,7 @@ int main(int argc, char *argv[])
                           + nu * dt / (dx * dx) * (vn[j][i + 1] - 2. * vn[j][i] + vn[j][i - 1]) + nu * dt / (dy * dy) * (vn[j + 1][i] - 2. * vn[j][i] + vn[j - 1][i]);
             }
         }
-        if (rank == 0)
+        if (rank == 1)
         { // ランク0が左端の境界条件を担当
             for (int j = 0; j < ny; j++)
             {
