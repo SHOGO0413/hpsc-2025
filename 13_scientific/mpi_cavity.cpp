@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
     // ただし、より堅牢な実装には1次元vectorへの変更を推奨。
     matrix global_u_data(ny, vector<float>(nx));
     matrix global_v_data(ny, vector<float>(nx));
-    matrix global_p_data(ny, vector<nx)); // global_p_data(ny, vector<float>(nx))のtypo修正
+    matrix global_p_data(ny, vector<float>(nx)); // global_p_data(ny, vector<float>(nx))のtypo修正
 
     // 各プロセスのデータ量とオフセットを計算 (全プロセスで実行)
     vector<int> recvcounts(size);
