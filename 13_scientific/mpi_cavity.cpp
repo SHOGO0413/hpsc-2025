@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
     double rho = 1.; // 流体の密度
     double nu = .02; // 流体の動粘性係数
 
-    // 各プロセスの担当するx方向のグリッド範囲を計算
+    // 各プロセスの担当するx方向のグローバルインデックス範囲を計算
     int local_nx_base = nx / size;     // 各プロセスに割り当てる基本的なグリッド数
     int remainder = nx % size;         // プロセス数で割り切れない部分
 
@@ -130,9 +130,10 @@ int main(int argc, char *argv[])
 
     for (int j = 0; j < ny; ++j) {
         for (int i_local = 0; i_local < my_cols; ++i_local) {
-            initial_send_u_flat[j * my_cols + i_local] = u[j][global_begin_idx + i_local];
-            initial_send_v_flat[j * my_cols + i_local] = v[j][global_begin_idx + i_local];
-            initial_send_p_flat[j * my_cols + i_local] = p[j][global_begin_idx + i_local];
+            // ここが修正箇所: u[j][begin_idx + i_local] は正しいアクセス
+            initial_send_u_flat[j * my_cols + i_local] = u[j][begin_idx + i_local]; 
+            initial_send_v_flat[j * my_cols + i_local] = v[j][begin_idx + i_local];
+            initial_send_p_flat[j * my_cols + i_local] = p[j][begin_idx + i_local];
         }
     }
     
@@ -349,107 +350,4 @@ int main(int argc, char *argv[])
                 // Compute u[j][i] and v[j][i]
                 u[j][i] = un[j][i] - un[j][i] * dt / dx * (un[j][i] - un[j][i - 1]) - vn[j][i] * dt / dy * (un[j][i] - un[j - 1][i]) - dt / (2. * rho * dx) * (p[j][i + 1] - p[j][i - 1]) + nu * dt / (dx * dx) * (un[j][i + 1] - 2. * un[j][i] + un[j][i - 1]) + nu * dt / (dy * dy) * (un[j + 1][i] - 2. * un[j][i] + un[j - 1][i]);
 
-                v[j][i] = vn[j][i] - un[j][i] * dt / dx * (vn[j][i] - vn[j][i - 1]) - vn[j][i] * dt / dy * (vn[j][i] - vn[j - 1][i]) - dt / (2. * rho * dy) * (p[j + 1][i] - p[j - 1][i]) // ここはdyに修正
-                                 + nu * dt / (dx * dx) * (vn[j][i + 1] - 2. * vn[j][i] + vn[j][i - 1]) + nu * dt / (dy * dy) * (vn[j + 1][i] - 2. * vn[j][i] + vn[j - 1][i]);
-            }
-        }
-        if (rank == 0)
-        { // ランク0が左端の境界条件を担当
-            for (int j = 0; j < ny; j++)
-            {
-                u[j][0] = 0;
-                v[j][0] = 0;
-            }
-        }
-        if (rank == size - 1)
-        { // 最後のランクが右端の境界条件を担当
-            for (int j = 0; j < ny; j++)
-            {
-                u[j][nx - 1] = 0;
-                v[j][nx - 1] = 0;
-            }
-        }
-        for (int i = begin_idx; i < end_idx; i++)
-        { // y方向の境界条件は共有メモリ上でそのまま
-            u[0][i] = 0;
-            u[ny - 1][i] = 1;
-            v[0][i] = 0;
-            v[ny - 1][i] = 0;
-        }
-
-        if (n % 10 == 0)
-        {
-            // ---  MPI_Gatherv を使用して、各プロセスからランク0にデータを集める ---
-            // 各プロセスの担当範囲 (begin_idx から end_idx-1) のデータを1次元配列として集める
-            // vector<vector<float>> から vector<float> への変換が必要
-            vector<float> send_u_flat(my_cols * ny);
-            vector<float> send_v_flat(my_cols * ny);
-            vector<float> send_p_flat(my_cols * ny);
-
-            for(int j=0; j<ny; ++j) {
-                for(int i_local=0; i_local<my_cols; ++i_local) {
-                    send_u_flat[j * my_cols + i_local] = u[j][begin_idx + i_local];
-                    send_v_flat[j * my_cols + i_local] = v[j][begin_idx + i_local];
-                    send_p_flat[j * my_cols + i_local] = p[j][begin_idx + i_local];
-                }
-            }
-
-            MPI_Gatherv(send_u_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT,
-                          global_u.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
-                          0, MPI_COMM_WORLD);
-
-            MPI_Gatherv(send_v_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT,
-                          global_v.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
-                          0, MPI_COMM_WORLD);
-
-            MPI_Gatherv(send_p_flat.data(), gatherv_recvcounts[rank], MPI_FLOAT,
-                          global_p.data(), gatherv_recvcounts.data(), gatherv_displs.data(), MPI_FLOAT,
-                          0, MPI_COMM_WORLD);
-
-            if (rank == 0)
-            {
-                // ランク0のみがファイルに書き込む (global_u/v/p を使用)
-                for (int j = 0; j < ny; j++)
-                {
-                    for (int i = 0; i < nx; i++)
-                    {
-                        ufile << global_u[j * nx + i] << " ";
-                    }
-                }
-                ufile << "\n"; // 改行出力
-
-                for (int j = 0; j < ny; j++)
-                {
-                    for (int i = 0; i < nx; i++)
-                    {
-                        vfile << global_v[j * nx + i] << " ";
-                    }
-                }
-                vfile << "\n"; // 改行出力
-
-                for (int j = 0; j < ny; j++)
-                {
-                    for (int i = 0; i < nx; i++)
-                    {
-                        pfile << global_p[j * nx + i] << " ";
-                    }
-                }
-                pfile << "\n"; // 改行出力
-            }
-        }
-    } // end of nt loop
-
-    ufile.close();
-    vfile.close();
-    pfile.close();
-
-    auto stop = high_resolution_clock::now();
-    auto duration = duration_cast<milliseconds>(stop - start);
-    if (rank == 0)
-    { // ランク0のみが出力
-        printf("Elapsed time: %lld ms\n", duration.count());
-    }
-
-    MPI_Finalize();
-    return 0; // main関数はintを返すのでreturn 0を追加
-}
+                v[j][i] = vn[j][i] - un
