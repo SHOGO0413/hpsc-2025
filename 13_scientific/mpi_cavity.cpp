@@ -346,32 +346,30 @@ int main(int argc, char *argv[])
 
         if (n % 10 == 0)
         {
-            if (rank == 2)
-            {
+
                 // 各プロセスから自分の担当範囲の u, v, p を集める (MPI_GatherV などを使用)
                 // 例えば、全データを集めるためのグローバル配列をランク0で宣言し、
                 // 各プロセスからその配列の対応する部分にデータを送ってもらう。
                 // しかし、これは MPI_Allgather で全データを揃えてから行うのが一般的。
                 for (int j = 0; j < ny; j++)
                 {
-                    for (int i = 0; i < nx; i++)
+                    for (int i = begin_idx; i < end_idx; i++)
                         ufile << u[j][i] << " ";
                 }
                 ufile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
-                    for (int i = 0; i < nx; i++)
+                    for (int i = begin_idx; i < end_idx; i++)
                         vfile << v[j][i] << " ";
                 }
                 vfile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
-                    for (int i = 0; i < nx; i++)
+                    for (int i = begin_idx; i < end_idx; i++)
                         pfile << p[j][i] << " ";
                 }
                 pfile << "\n";
             }
-        }
     } // end of nt loop
 
     ufile.close();
