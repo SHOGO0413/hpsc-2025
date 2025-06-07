@@ -414,13 +414,14 @@ int main(int argc, char *argv[])
                 }
                 pfile_out << "\n";
 
-                ufile_out.close();
-                vfile_out.close();
-                pfile_out.close();
             }
         }
     } // end of nt loop
 
+    ufile_out.close();
+    vfile_out.close();
+    pfile_out.close();
+    
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<milliseconds>(stop - start);
     if (rank == 0)
