@@ -163,6 +163,14 @@ int main(int argc, char *argv[])
         }
         for (int it = 0; it < nit; it++)
         {
+            for (int j = 0; j < ny; j++)
+            {
+                for (int i = begin_idx; i < end_idx; i++)
+                {
+                    pn[j][i] = p[j][i];
+                }
+            }
+            
             // --- 圧力場 (p/pn) のゴーストセル交換 ---
             // p の計算の前に、隣接プロセスから p の境界データを取得する
             // pn にコピーした p の値を使うため、pnのゴーストセルを更新する
@@ -194,13 +202,6 @@ int main(int argc, char *argv[])
             }
             // --- 圧力場 (p/pn) のゴーストセル交換 終わり ---
 
-            for (int j = 0; j < ny; j++)
-            {
-                for (int i = begin_idx; i < end_idx; i++)
-                {
-                    pn[j][i] = p[j][i];
-                }
-            }
             for (int j = 1; j < ny - 1; j++)
             {
                 for (int i = max(1, begin_idx); i < min(nx - 1, end_idx); i++)
