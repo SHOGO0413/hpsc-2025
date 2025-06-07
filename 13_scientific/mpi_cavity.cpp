@@ -69,14 +69,7 @@ int main(int argc, char *argv[])
     ofstream ufile("u.dat");
     ofstream vfile("v.dat");
     ofstream pfile("p.dat");
-
-    // バッファの用意: 1列分のデータを送受信するためのテンポラリ配列
-    // ny行分のデータを送受信するため、サイズは ny
-    vector<float> send_left_buffer(ny);  // 左隣に送るデータ
-    vector<float> recv_left_buffer(ny);  // 左隣から受け取るデータ
-    vector<float> send_right_buffer(ny); // 右隣に送るデータ
-    vector<float> recv_right_buffer(ny); // 右隣から受け取るデータ
-
+    
     // バッファの用意: 1列分のデータを送受信するためのテンポラリ配列
     // ny行分のデータを送受信するため、サイズは ny
     vector<float> send_left_buffer(ny);  // 左隣に送るデータ
