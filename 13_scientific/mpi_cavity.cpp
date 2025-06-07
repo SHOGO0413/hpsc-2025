@@ -69,6 +69,10 @@ int main(int argc, char *argv[])
     }
     auto start = high_resolution_clock::now();
 
+    ofstream ufile("u.dat");
+    ofstream vfile("v.dat");
+    ofstream pfile("p.dat");
+    
     vector<float> send_left_buffer(ny);
     vector<float> recv_left_buffer(ny);
     vector<float> send_right_buffer(ny);
@@ -380,11 +384,6 @@ int main(int argc, char *argv[])
                     }
                 }
                 // --- 追加点2 終わり ---
-
-                // ランク0のみがファイルを開いて書き込む
-                ofstream ufile_out("u.dat", ios_base::app); 
-                ofstream vfile_out("v.dat", ios_base::app);
-                ofstream pfile_out("p.dat", ios_base::app);
 
                 // 復元した2次元行列をファイルに書き込み
                 for (int j = 0; j < ny; j++)
