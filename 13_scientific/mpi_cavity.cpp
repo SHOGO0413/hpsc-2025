@@ -243,6 +243,72 @@ int main(int argc, char *argv[])
             }
         }
 
+        // un のゴーストセル交換
+        for (int j = 0; j < ny; j++)
+        {
+            // 右隣のプロセスに送るデータ (担当領域の右端の1列分)
+            send_right_buffer[j] = un[j][end_idx - 1]; // 自分の右端の列
+            // 左隣のプロセスに送るデータ (担当領域の左端の1列分)
+            send_left_buffer[j] = un[j][begin_idx]; // 自分の左端の列
+        }
+
+        // ゴーストセル通信（U成分）
+        if (rank > 0)
+        { // 左隣のプロセスがいる場合
+            // 左隣からデータを受け取り (rank-1 から rank の begin_idx-1 へ)、
+            // 自分の左端のデータを左隣に送る (rank の begin_idx から rank-1 へ)
+            MPI_Sendrecv(&send_left_buffer[0], ny, MPI_FLOAT, rank - 1, 0,
+                         &recv_left_buffer[0], ny, MPI_FLOAT, rank - 1, 1,
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            // 受け取ったデータをゴーストセルに格納
+            for (int j = 0; j < ny; ++j)
+            {
+                un[j][begin_idx - 1] = recv_left_buffer[j]; // 左側のゴーストセルを更新
+            }
+        }
+        if (rank < size - 1)
+        { // 右隣のプロセスがいる場合
+            // 右隣にデータを送り (rank の end_idx-1 から rank+1 へ)、
+            // 右隣からデータを受け取る (rank+1 から rank の end_idx へ)
+            MPI_Sendrecv(&send_right_buffer[0], ny, MPI_FLOAT, rank + 1, 1,
+                         &recv_right_buffer[0], ny, MPI_FLOAT, rank + 1, 0,
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            // 受け取ったデータをゴーストセルに格納
+            for (int j = 0; j < ny; ++j)
+            {
+                un[j][end_idx] = recv_right_buffer[j]; // 右側のゴーストセルを更新
+            }
+        }
+
+        // vn のゴーストセル交換 (un と同様のロジック)
+        for (int j = 0; j < ny; j++)
+        {
+            send_right_buffer[j] = vn[j][end_idx - 1];
+            send_left_buffer[j] = vn[j][begin_idx];
+        }
+        if (rank > 0)
+        {
+            MPI_Sendrecv(&send_left_buffer[0], ny, MPI_FLOAT, rank - 1, 2,
+                         &recv_left_buffer[0], ny, MPI_FLOAT, rank - 1, 3,
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            for (int j = 0; j < ny; ++j)
+            {
+                vn[j][begin_idx - 1] = recv_left_buffer[j];
+            }
+        }
+        if (rank < size - 1)
+        {
+            MPI_Sendrecv(&send_right_buffer[0], ny, MPI_FLOAT, rank + 1, 3,
+                         &recv_right_buffer[0], ny, MPI_FLOAT, rank + 1, 2,
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            for (int j = 0; j < ny; ++j)
+            {
+                vn[j][end_idx] = recv_right_buffer[j];
+            }
+        }
+        // --- 速度場 (un, vn) のゴーストセル交換 終わり ---
+
+
         for (int j = 1; j < ny - 1; j++)
         {
             for (int i = max(1, begin_idx); i < min(nx - 1, end_idx); i++)
