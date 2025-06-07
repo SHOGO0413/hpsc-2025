@@ -420,20 +420,20 @@ int main(int argc, char *argv[])
                 {
                     for (int i = 0; i < nx; i++)
                         ufile << global_u_data[j * nx + i] << " ";
-                    ufile << "\n";
                 }
+                ufile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                         vfile << global_v_data[j * nx + i] << " ";
-                    vfile << "\n";
                 }
+                vfile << "\n";
                 for (int j = 0; j < ny; j++)
                 {
                     for (int i = 0; i < nx; i++)
                         pfile << global_p_data[j * nx + i] << " ";
-                    pfile << "\n";
                 }
+                 pfile << "\n";
             }
         }
     } // end of nt loop
