@@ -3,10 +3,8 @@
 #include <fstream>
 #include <vector>
 #include <cmath>
-#include <chrono>
 #include <mpi.h>
 
-using namespace std::chrono;
 using namespace std;
 
 typedef vector<vector<float>> matrix;
@@ -24,7 +22,7 @@ int main(int argc, char *argv[])
     int nt = 500;
     int nit = 50;
     double dx = 2. / (nx - 1);
-    double dy = 2. / (ny - 1); // ここは -1ではなく、nx-1と同じように ny-1が正しいはずです。
+    double dy = 2. / (ny - 1);
     double dt = .01;
     double rho = 1.;
     double nu = .02;
@@ -32,16 +30,16 @@ int main(int argc, char *argv[])
     int local_nx_base = nx / size; // 各プロセス用の割り当てグリッド数
     int remainder = nx % size;     // プロセス数で割り切れない部分。（41%4=1）
 
-    int begin_idx; // 各プロセスが担当するx方向の開始インデックス (ローカル計算領域の左端)
-    int end_idx;   // 各プロセスが担当するx方向の終了インデックス (ローカル計算領域の右端+1)
+    int begin_idx; // 各プロセスが担当するx方向の開始インデックス
+    int end_idx;   // 各プロセスが担当するx方向の終了インデックス
 
     if (rank < remainder)
-    { // 余り分を処理するプロセス。
+    { // 余り分を処理するプロセス
         begin_idx = rank * (local_nx_base + 1);
         end_idx = begin_idx + (local_nx_base + 1);
     }
     else
-    { // 余りを考慮しないプロセス。
+    { // 余りを考慮しないプロセス
         begin_idx = rank * local_nx_base + remainder;
         end_idx = begin_idx + local_nx_base;
     }
@@ -56,7 +54,7 @@ int main(int argc, char *argv[])
 
     for (int j = 0; j < ny; j++)
     {
-        for (int i = begin_idx; i < end_idx; i++)
+        for (int i = begin_idx; i < end_idx; i++)//各rankごとに初期化
         {
             u[j][i] = 0;
             v[j][i] = 0;
@@ -64,7 +62,6 @@ int main(int argc, char *argv[])
             b[j][i] = 0;
         }
     }
-    auto start = high_resolution_clock::now();
 
     ofstream ufile("u.dat");
     ofstream vfile("v.dat");
@@ -72,6 +69,7 @@ int main(int argc, char *argv[])
 
     // バッファの用意: 1列分のデータを送受信するためのテンポラリ配列
     // ny行分のデータを送受信するため、サイズは ny
+    // 後にゴーストセル交換の際に使用する
     vector<float> send_left_buffer(ny);  // 左隣に送るデータ
     vector<float> recv_left_buffer(ny);  // 左隣から受け取るデータ
     vector<float> send_right_buffer(ny); // 右隣に送るデータ
@@ -394,7 +392,6 @@ int main(int argc, char *argv[])
                   0, MPI_COMM_WORLD);
           }
           
-          // ランク0が集約したデータをファイルに書き込む
           if (rank == 0)
           {
               for (int j = 0; j < ny; j++)
@@ -419,19 +416,12 @@ int main(int argc, char *argv[])
               pfile << "\n";
           }
         }
-    } // end of nt loop
+    }
 
     ufile.close();
     vfile.close();
     pfile.close();
 
-    auto stop = high_resolution_clock::now();
-    auto duration = duration_cast<milliseconds>(stop - start);
-    if (rank == 0)
-    { // ランク0のみが出力
-        printf("Elapsed time: %lld ms\n", duration.count());
-    }
-
     MPI_Finalize();
-    return 0; // main関数はintを返すのでreturn 0を追加
+    return 0;
 }
