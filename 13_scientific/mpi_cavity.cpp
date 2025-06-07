@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
     double nu = .02;
 
     int local_nx_base = nx / size; // 各プロセス用の割り当てグリッド数
-    int remainder = nx % size;     // プロセス数で割り切れない部分。（41%4=1）
+    int remainder = nx % size;      // プロセス数で割り切れない部分。（41%4=1）
 
     int begin_idx;
     int end_idx;
@@ -67,15 +67,18 @@ int main(int argc, char *argv[])
     }
     auto start = high_resolution_clock::now();
 
-    // ファイル書き込みはランク0のみが行うため、ここでは修正なし
-    // 各ランクが自分の担当するデータを書き出し、その後ランク0が結合する
-    // という方法もありますが、提示されたコードの既存のファイル書き込みロジックを尊重します。
     ofstream ufile, vfile, pfile;
     if (rank == 0) {
         ufile.open("u.dat");
         vfile.open("v.dat");
         pfile.open("p.dat");
     }
+
+    // ここでsend_count, request, statusを定義する
+    // これにより、ntループ内で複数回再定義されなくなり、かつPとU/Vの境界データ交換で共有できるようになる
+    MPI_Request request[4];
+    MPI_Status status[4];
+    int send_count = ny; // 1列分のデータ数 (これはnyに依存するので、ntループの外で定義可能)
 
     for (int n = 0; n < nt; n++)
     {
@@ -105,9 +108,7 @@ int main(int argc, char *argv[])
             // --- Pの境界データ交換（ゴーストセルの更新） ---
             // 各プロセスは、自分の担当範囲の境界（1列）を隣接プロセスに送り、
             // 同時に隣接プロセスから境界データ（ゴーストセル）を受け取る
-            MPI_Request request[4];
-            MPI_Status status[4];
-            int send_count = ny; // 1列分のデータ数
+            // ここでのrequest, status, send_countの定義は削除され、外部の定義を使用
 
             // 左隣のプロセスとデータを交換 (begin_idx - 1 のゴーストセルを更新)
             if (rank > 0)
@@ -220,7 +221,7 @@ int main(int argc, char *argv[])
                 u[j][i] = un[j][i] - un[j][i] * dt / dx * (un[j][i] - un[j][i - 1]) - vn[j][i] * dt / dy * (un[j][i] - un[j - 1][i]) - dt / (2. * rho * dx) * (p[j][i + 1] - p[j][i - 1]) + nu * dt / (dx * dx) * (un[j][i + 1] - 2. * un[j][i] + un[j][i - 1]) + nu * dt / (dy * dy) * (un[j + 1][i] - 2. * un[j][i] + un[j - 1][i]);
 
                 v[j][i] = vn[j][i] - un[j][i] * dt / dx * (vn[j][i] - vn[j][i - 1]) - vn[j][i] * dt / dy * (vn[j][i] - vn[j - 1][i]) - dt / (2. * rho * dy) * (p[j + 1][i] - p[j - 1][i]) // ここはdyに修正
-                                + nu * dt / (dx * dx) * (vn[j][i + 1] - 2. * vn[j][i] + vn[j][i - 1]) + nu * dt / (dy * dy) * (vn[j + 1][i] - 2. * vn[j][i] + vn[j - 1][i]);
+                                 + nu * dt / (dx * dx) * (vn[j][i + 1] - 2. * vn[j][i] + vn[j][i - 1]) + nu * dt / (dy * dy) * (vn[j + 1][i] - 2. * vn[j][i] + vn[j - 1][i]);
             }
         }
         if (rank == 0)
@@ -247,50 +248,6 @@ int main(int argc, char *argv[])
             v[ny - 1][i] = 0;
         }
 
-        // ファイル書き込みの部分は、各プロセスが計算したデータをランク0に集めてから
-        // 書き出すように変更するか、ランク0が全体を把握できるように変更する必要があります。
-        // 現状のコードではランク0のみが書き出し、他のランクのデータは無視されます。
-        // ここではコードの変更は最小限に留め、既存のロジックを維持します。
-        // 全体のデータをランク0に集める場合、MPI_Gatherなどを使用することになります。
         if (n % 10 == 0)
         {
             if (rank == 0)
-            {
-                for (int j = 0; j < ny; j++)
-                {
-                    for (int i = 0; i < nx; i++)
-                        ufile << u[j][i] << " ";
-                    ufile << "\n";
-                }
-                for (int j = 0; j < ny; j++)
-                {
-                    for (int i = 0; i < nx; i++)
-                        vfile << v[j][i] << " ";
-                    vfile << "\n";
-                }
-                for (int j = 0; j < ny; j++)
-                {
-                    for (int i = 0; i < nx; i++)
-                        pfile << p[j][i] << " ";
-                    pfile << "\n";
-                }
-            }
-        }
-    } // end of nt loop
-
-    if (rank == 0) {
-        ufile.close();
-        vfile.close();
-        pfile.close();
-    }
-
-    auto stop = high_resolution_clock::now();
-    auto duration = duration_cast<milliseconds>(stop - start);
-    if (rank == 0)
-    { // ランク0のみが出力
-        printf("Elapsed time: %lld ms\n", duration.count());
-    }
-
-    MPI_Finalize();
-    return 0; // main関数はintを返すのでreturn 0を追加
-}
