@@ -52,7 +52,7 @@ def main():
         plt.savefig(frame_filename)
         print(f"Saved {frame_filename}")
 
-    plt.close()）
+    plt.close()
 
 if __name__ == '__main__':
     main()
