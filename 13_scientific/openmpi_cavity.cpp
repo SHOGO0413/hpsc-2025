@@ -144,5 +144,4 @@ int main()
     vfile.close();
     pfile.close();
 
-    printf("Elapsed time: %lld ms\n", duration.count());
 }
