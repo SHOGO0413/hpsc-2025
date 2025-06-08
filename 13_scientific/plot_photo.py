@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import os # osモジュールを追加
+import os
 
 NX = 41
 NY = 41
@@ -21,28 +21,21 @@ def main():
     with open('p.dat', 'r') as f:
         praw = f.readlines()
 
-    # 画像保存用のディレクトリを作成
     output_dir = 'output_frames'
     os.makedirs(output_dir, exist_ok=True) # 既に存在してもエラーにならない
 
     for n in range(len(uraw)):
-        plt.clf() # 既存の図をクリア
+        plt.clf()
 
         u_flattened = [float(val) for val in uraw[n].strip().split() if val]
         v_flattened = [float(val) for val in vraw[n].strip().split() if val]
         p_flattened = [float(val) for val in praw[n].strip().split() if val]
 
-        # データ長のエラーチェックはそのまま残しておくことを推奨
         expected_len_per_line = NX * NY
         if len(u_flattened) != expected_len_per_line or \
            len(v_flattened) != expected_len_per_line or \
            len(p_flattened) != expected_len_per_line:
             print(f"警告: タイムステップ {n} でデータ長が期待値と異なります！")
-            # ここで処理を中断するか、あるいはスキップするなどの対応を検討
-            # 例: continue # このステップをスキップして次のステップへ
-            # 例: break    # 全体のループを中断
-            # 現状ではそのまま処理を進めるので、エラーが出れば落ちる可能性があります。
-            # 原因が解決していないなら、エラーが出る前にここで止めるべきかもしれません。
 
         for j in range(NY):
             for i in range(NX):
@@ -55,12 +48,11 @@ def main():
         plt.quiver(X[::2, ::2], Y[::2, ::2], u[::2, ::2], v[::2, ::2])
         plt.title(f'C++, n = {n}')
 
-        # ここで画像として保存
         frame_filename = os.path.join(output_dir, f'cavity_frame_{n:04d}.png')
         plt.savefig(frame_filename)
-        print(f"Saved {frame_filename}") # 保存したことを表示
+        print(f"Saved {frame_filename}")
 
-    plt.close() # 全てのmatplotlibのFigureを閉じる（メモリ解放のため重要）
+    plt.close()）
 
 if __name__ == '__main__':
     main()
