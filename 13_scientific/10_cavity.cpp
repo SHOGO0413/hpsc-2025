@@ -4,10 +4,6 @@
 #include <vector>
 #include <cmath>
 
-#include <chrono>
-
-using namespace std::chrono;
-
 using namespace std;
 typedef vector<vector<float>> matrix;
 
@@ -40,7 +36,6 @@ int main()
             b[j][i] = 0;
         }
     }
-    auto start = high_resolution_clock::now();
 
     ofstream ufile("u.dat");
     ofstream vfile("v.dat");
@@ -142,7 +137,5 @@ int main()
     vfile.close();
     pfile.close();
 
-    auto stop = high_resolution_clock::now();
-    auto duration = duration_cast<milliseconds>(stop - start);
     printf("Elapsed time: %lld ms\n", duration.count());
 }
